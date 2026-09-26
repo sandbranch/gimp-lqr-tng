@@ -27,8 +27,8 @@
 G_BEGIN_DECLS
 
 /* the parasite that marks the mask layers this plug-in makes; its data is
- * "keep <tattoo>" or "remove <tattoo>", the tattoo of the layer they are
- * for */
+ * "keep <tattoo>", "remove <tattoo>" or "rigid <tattoo>", the tattoo of
+ * the layer they are for */
 #define MASK_PARASITE "gimp-lqr-tng-mask"
 /* the same, as Liquid Rescale Paint (this plug-in's first name) stored
  * it: still found, and renamed when the mask is stored again */
@@ -78,8 +78,8 @@ void         layer_io_mark_mask     (GimpLayer          *layer,
                                      MaskKind            kind);
 
 /* the painted mask values (target's size, 0 to 1) into this plug-in's
- * mask layer for target, made if there is none: green or red, with the
- * values as alpha, above target and hidden. Removes the layer if values
+ * mask layer for target, made if there is none: green, red or blue, with
+ * the values as alpha, above target and hidden. Removes the layer if values
  * is NULL. Returns the layer or NULL. */
 GimpLayer  * layer_io_store_mask    (GimpImage          *image,
                                      GimpLayer          *target,

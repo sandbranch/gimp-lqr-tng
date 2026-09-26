@@ -195,6 +195,53 @@ test_set_from (void)
   masks_free (m);
 }
 
+/* rigid overlaps keep, not remove */
+static void
+test_rigid (void)
+{
+  Masks  *m = masks_new (100, 80);
+  gsize   at = 40 * 100 + 50;
+  gfloat *r;
+
+  masks_paint_disc (m, MASK_KEEP, FALSE, 50, 40, 10, NULL);
+  masks_paint_disc (m, MASK_RIGID, FALSE, 50, 40, 5, NULL);
+  g_assert_cmpint (m->rigid[at], ==, 255);
+  g_assert_cmpint (m->keep[at], ==, 255);
+  g_assert_false (masks_empty (m, MASK_RIGID));
+  g_assert_true (masks_get (m, MASK_RIGID) == m->rigid);
+
+  /* keep over rigid leaves it */
+  masks_paint_disc (m, MASK_KEEP, FALSE, 50, 40, 10, NULL);
+  g_assert_cmpint (m->rigid[at], ==, 255);
+
+  /* remove takes both */
+  masks_paint_disc (m, MASK_REMOVE, FALSE, 50, 40, 2, NULL);
+  g_assert_cmpint (m->remove[at], ==, 255);
+  g_assert_cmpint (m->rigid[at], ==, 0);
+  g_assert_cmpint (m->keep[at], ==, 0);
+
+  /* rigid over remove takes the remove */
+  masks_paint_disc (m, MASK_RIGID, FALSE, 50, 40, 2, NULL);
+  g_assert_cmpint (m->rigid[at], ==, 255);
+  g_assert_cmpint (m->remove[at], ==, 0);
+  g_assert_true (masks_empty (m, MASK_REMOVE));
+
+  r = masks_resample (m, MASK_RIGID, 100, 80);
+  g_assert_cmpfloat (r[at], ==, 1.0f);
+  g_assert_cmpfloat (r[0], ==, 0.0f);
+  g_free (r);
+
+  /* the eraser takes all three; clear too */
+  masks_paint_disc (m, MASK_RIGID, TRUE, 50, 40, 3, NULL);
+  g_assert_cmpint (m->rigid[at], ==, 0);
+  g_assert_cmpint (m->keep[at], ==, 0);
+  g_assert_false (masks_empty (m, MASK_RIGID));
+  masks_clear (m);
+  g_assert_true (masks_empty (m, MASK_RIGID));
+  g_assert_true (masks_empty (m, MASK_KEEP));
+  masks_free (m);
+}
+
 static void
 test_undo (void)
 {
@@ -203,14 +250,29 @@ test_undo (void)
   gint       area[4] = { 0, 0, 0, 0 };
 
   masks_paint_disc (m, MASK_KEEP, FALSE, 20, 20, 8, NULL);
+  masks_paint_disc (m, MASK_RIGID, FALSE, 30, 25, 6, NULL);
   before = masks_copy (m);
+  g_assert_cmpmem (before->rigid, 2400, m->rigid, 2400);
   masks_paint_line (m, MASK_REMOVE, FALSE, 10, 10, 50, 30, 4, area);
-  g_assert_true (memcmp (m->keep, before->keep, 2400) != 0 ||
-                 memcmp (m->remove, before->remove, 2400) != 0);
+  g_assert_true (memcmp (m->keep, before->keep, 2400) != 0);
+  g_assert_true (memcmp (m->rigid, before->rigid, 2400) != 0);
   undo = masks_undo_new (before, area);
   masks_undo_apply (m, undo);
   g_assert_cmpmem (m->keep, 2400, before->keep, 2400);
   g_assert_cmpmem (m->remove, 2400, before->remove, 2400);
+  g_assert_cmpmem (m->rigid, 2400, before->rigid, 2400);
+  masks_undo_free (undo);
+
+  /* a stroke of rigid, undone */
+  memset (area, 0, sizeof (area));
+  masks_free (before);
+  before = masks_copy (m);
+  masks_paint_line (m, MASK_RIGID, FALSE, 5, 35, 55, 35, 3, area);
+  g_assert_true (memcmp (m->rigid, before->rigid, 2400) != 0);
+  undo = masks_undo_new (before, area);
+  masks_undo_apply (m, undo);
+  g_assert_cmpmem (m->rigid, 2400, before->rigid, 2400);
+  g_assert_cmpmem (m->keep, 2400, before->keep, 2400);
   masks_undo_free (undo);
   masks_free (before);
   masks_free (m);
@@ -228,6 +290,7 @@ main (int    argc,
   g_test_add_func ("/masks/line", test_line);
   g_test_add_func ("/masks/resample", test_resample);
   g_test_add_func ("/masks/set-from", test_set_from);
+  g_test_add_func ("/masks/rigid", test_rigid);
   g_test_add_func ("/masks/undo", test_undo);
 
   return g_test_run ();

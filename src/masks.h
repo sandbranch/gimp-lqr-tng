@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
- * The keep and remove masks are painted at a working size (at most
+ * The keep, remove and rigid masks are painted at a working size (at most
  * MASK_WORK_SIZE pixels on the long side, so that a large brush stays
  * fast on a large photo), one byte per pixel, and resampled to the size
  * they are used at: the preview, or the layer for the result.
@@ -33,7 +33,9 @@ G_BEGIN_DECLS
 typedef enum
 {
   MASK_KEEP,
-  MASK_REMOVE
+  MASK_REMOVE,
+  MASK_RIGID,       /* where the seams bend less: straight lines */
+  MASK_N_KINDS
 } MaskKind;
 
 typedef struct
@@ -42,6 +44,7 @@ typedef struct
   gint    height;
   guint8 *keep;     /* 0 to 255 */
   guint8 *remove;
+  guint8 *rigid;
 } Masks;
 
 /* the working size for a layer of width x height */
@@ -59,8 +62,12 @@ gboolean masks_empty       (const Masks  *masks,
 void     masks_clear       (Masks        *masks);
 
 /* paints (value 255) or erases (0) a disc of radius r at (x, y), in
- * working pixels. Painting one mask erases the other there, so a pixel is
- * never both. Grows *area (x, y, width, height; width 0 for none yet) to
+ * working pixels. Keep and remove exclude each other: painting one
+ * erases the other there. Rigid goes with keep (a straight line in
+ * something kept), not with remove (what goes needs no straight lines,
+ * and rigid seams would follow it less well): painting rigid erases
+ * remove there, painting remove erases rigid. The eraser takes all three.
+ * Grows *area (x, y, width, height; width 0 for none yet) to
  * cover what changed. */
 void     masks_paint_disc  (Masks        *masks,
                             MaskKind      kind,
@@ -97,12 +104,15 @@ void     masks_set_from    (Masks        *masks,
                             gint          width,
                             gint          height);
 
-/* an undo step: the area of both masks as it was */
+/* the mask of kind */
+guint8 * masks_get         (const Masks  *masks,
+                            MaskKind      kind);
+
+/* an undo step: the area of all the masks as it was */
 typedef struct
 {
   gint    area[4];
-  guint8 *keep;
-  guint8 *remove;
+  guint8 *masks[MASK_N_KINDS];
 } MasksUndo;
 
 MasksUndo * masks_undo_new     (const Masks *before,

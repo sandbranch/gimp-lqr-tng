@@ -59,24 +59,33 @@ struct _PaintView
 };
 
 static inline guint32
-overlay_pixel (guint8 keep,
-               guint8 remove)
+premultiplied (guint8 alpha,
+               guint   r,
+               guint   g,
+               guint   b)
 {
-  /* green (40, 200, 60) and red (230, 40, 40), premultiplied */
+  guint a = OVERLAY_ALPHA * alpha / 255;
+
+  return (a << 24) | ((r * a / 255) << 16) | ((g * a / 255) << 8) |
+         (b * a / 255);
+}
+
+/* green (40, 200, 60), red (230, 40, 40), blue (40, 110, 240); where
+ * straight lies over keep, stripes of both, stripe pixels apart */
+static inline guint32
+overlay_pixel (guint8 keep,
+               guint8 remove,
+               guint8 rigid,
+               gint   x,
+               gint   y,
+               gint   stripe)
+{
+  if (rigid && (!keep || ((x + y) / stripe) % 2 == 0))
+    return premultiplied (rigid, 40, 110, 240);
   if (keep)
-    {
-      guint a = OVERLAY_ALPHA * keep / 255;
-
-      return (a << 24) | ((40 * a / 255) << 16) | ((200 * a / 255) << 8) |
-             (60 * a / 255);
-    }
+    return premultiplied (keep, 40, 200, 60);
   if (remove)
-    {
-      guint a = OVERLAY_ALPHA * remove / 255;
-
-      return (a << 24) | ((230 * a / 255) << 16) | ((40 * a / 255) << 8) |
-             (40 * a / 255);
-    }
+    return premultiplied (remove, 230, 40, 40);
   return 0;
 }
 
@@ -84,11 +93,14 @@ static void
 update_overlay (PaintView *view,
                 const gint area[4])
 {
-  guchar *data;
-  gint    stride, x, y;
+  const Masks *m = view->masks;
+  guchar      *data;
+  gint         stride, x, y, stripe;
 
   if (area[2] <= 0 || area[3] <= 0)
     return;
+  /* 4 displayed pixels */
+  stripe = MAX (1, (gint) floor (4.0 * m->width / view->width + 0.5));
   cairo_surface_flush (view->overlay);
   data   = cairo_image_surface_get_data (view->overlay);
   stride = cairo_image_surface_get_stride (view->overlay);
@@ -98,9 +110,10 @@ update_overlay (PaintView *view,
 
       for (x = area[0]; x < area[0] + area[2]; x++)
         {
-          gsize at = (gsize) y * view->masks->width + x;
+          gsize at = (gsize) y * m->width + x;
 
-          row[x] = overlay_pixel (view->masks->keep[at], view->masks->remove[at]);
+          row[x] = overlay_pixel (m->keep[at], m->remove[at], m->rigid[at],
+                                  x, y, stripe);
         }
     }
   cairo_surface_mark_dirty_rectangle (view->overlay, area[0], area[1],
@@ -158,10 +171,11 @@ paint_to (PaintView *view,
           gdouble    x,
           gdouble    y)
 {
-  gint area[4] = { 0, 0, 0, 0 };
+  /* by tool; the eraser takes all */
+  MaskKind kinds[] = { MASK_KEEP, MASK_REMOVE, MASK_RIGID, MASK_KEEP };
+  gint     area[4] = { 0, 0, 0, 0 };
 
-  masks_paint_line (view->masks,
-                    view->stroke_tool == PAINT_TOOL_REMOVE ? MASK_REMOVE : MASK_KEEP,
+  masks_paint_line (view->masks, kinds[view->stroke_tool],
                     view->stroke_tool == PAINT_TOOL_ERASE,
                     view->last_x, view->last_y, x, y, work_radius (view), area);
   view->last_x = x;
@@ -464,7 +478,9 @@ paint_view_clear (PaintView *view)
   gint all[4] = { 0, 0, view->masks->width, view->masks->height };
 
   end_stroke (view);
-  if (masks_empty (view->masks, MASK_KEEP) && masks_empty (view->masks, MASK_REMOVE))
+  if (masks_empty (view->masks, MASK_KEEP) &&
+      masks_empty (view->masks, MASK_REMOVE) &&
+      masks_empty (view->masks, MASK_RIGID))
     return;
   push_undo (view, masks_undo_new (view->masks, all));
   masks_clear (view->masks);

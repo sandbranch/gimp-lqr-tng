@@ -49,6 +49,7 @@ masks_new (gint width,
   masks->height = height;
   masks->keep   = g_new0 (guint8, (gsize) width * height);
   masks->remove = g_new0 (guint8, (gsize) width * height);
+  masks->rigid  = g_new0 (guint8, (gsize) width * height);
   return masks;
 }
 
@@ -61,6 +62,7 @@ masks_copy (const Masks *masks)
   *copy = *masks;
   copy->keep   = g_memdup2 (masks->keep, n);
   copy->remove = g_memdup2 (masks->remove, n);
+  copy->rigid  = g_memdup2 (masks->rigid, n);
   return copy;
 }
 
@@ -71,14 +73,30 @@ masks_free (Masks *masks)
     return;
   g_free (masks->keep);
   g_free (masks->remove);
+  g_free (masks->rigid);
   g_free (masks);
+}
+
+guint8 *
+masks_get (const Masks *masks,
+           MaskKind     kind)
+{
+  switch (kind)
+    {
+    case MASK_KEEP:
+      return masks->keep;
+    case MASK_REMOVE:
+      return masks->remove;
+    default:
+      return masks->rigid;
+    }
 }
 
 gboolean
 masks_empty (const Masks *masks,
              MaskKind     kind)
 {
-  const guint8 *m = kind == MASK_KEEP ? masks->keep : masks->remove;
+  const guint8 *m = masks_get (masks, kind);
   gsize         n = (gsize) masks->width * masks->height, i;
 
   for (i = 0; i < n; i++)
@@ -94,6 +112,7 @@ masks_clear (Masks *masks)
 
   memset (masks->keep, 0, n);
   memset (masks->remove, 0, n);
+  memset (masks->rigid, 0, n);
 }
 
 static void
@@ -130,8 +149,6 @@ masks_paint_disc (Masks    *masks,
                   gdouble   r,
                   gint      area[4])
 {
-  guint8 *paint = kind == MASK_KEEP ? masks->keep : masks->remove;
-  guint8 *other = kind == MASK_KEEP ? masks->remove : masks->keep;
   gint    x0, y0, x1, y1, px, py;
   gdouble r2;
 
@@ -156,11 +173,24 @@ masks_paint_disc (Masks    *masks,
           {
             masks->keep[at]   = 0;
             masks->remove[at] = 0;
+            masks->rigid[at]  = 0;
+            continue;
           }
-        else
+        switch (kind)
           {
-            paint[at] = 255;
-            other[at] = 0;
+          case MASK_KEEP:
+            masks->keep[at]   = 255;
+            masks->remove[at] = 0;
+            break;
+          case MASK_REMOVE:
+            masks->remove[at] = 255;
+            masks->keep[at]   = 0;
+            masks->rigid[at]  = 0;
+            break;
+          default:
+            masks->rigid[at]  = 255;
+            masks->remove[at] = 0;
+            break;
           }
       }
   if (area)
@@ -270,7 +300,7 @@ masks_resample (const Masks *masks,
                 gint         width,
                 gint         height)
 {
-  const guint8 *m = kind == MASK_KEEP ? masks->keep : masks->remove;
+  const guint8 *m = masks_get (masks, kind);
   gsize         n = (gsize) masks->width * masks->height, i;
   gfloat       *values = g_new (gfloat, n);
   gfloat       *out;
@@ -289,7 +319,7 @@ masks_set_from (Masks        *masks,
                 gint          width,
                 gint          height)
 {
-  guint8 *m = kind == MASK_KEEP ? masks->keep : masks->remove;
+  guint8 *m = masks_get (masks, kind);
   gfloat *work = resample (values, width, height, masks->width, masks->height);
   gsize   n = (gsize) masks->width * masks->height, i;
 
@@ -303,17 +333,17 @@ masks_undo_new (const Masks *before,
                 const gint   area[4])
 {
   MasksUndo *undo = g_new0 (MasksUndo, 1);
-  gint       y;
+  gint       y, k;
 
   memcpy (undo->area, area, sizeof (undo->area));
-  undo->keep   = g_new (guint8, (gsize) area[2] * area[3]);
-  undo->remove = g_new (guint8, (gsize) area[2] * area[3]);
-  for (y = 0; y < area[3]; y++)
+  for (k = 0; k < MASK_N_KINDS; k++)
     {
-      gsize from = (gsize) (area[1] + y) * before->width + area[0];
+      const guint8 *m = masks_get (before, k);
 
-      memcpy (undo->keep + (gsize) y * area[2], before->keep + from, area[2]);
-      memcpy (undo->remove + (gsize) y * area[2], before->remove + from, area[2]);
+      undo->masks[k] = g_new (guint8, (gsize) area[2] * area[3]);
+      for (y = 0; y < area[3]; y++)
+        memcpy (undo->masks[k] + (gsize) y * area[2],
+                m + (gsize) (area[1] + y) * before->width + area[0], area[2]);
     }
   return undo;
 }
@@ -322,25 +352,26 @@ void
 masks_undo_apply (Masks           *masks,
                   const MasksUndo *undo)
 {
-  gint y;
+  gint y, k;
 
-  for (y = 0; y < undo->area[3]; y++)
+  for (k = 0; k < MASK_N_KINDS; k++)
     {
-      gsize to = (gsize) (undo->area[1] + y) * masks->width + undo->area[0];
+      guint8 *m = masks_get (masks, k);
 
-      memcpy (masks->keep + to, undo->keep + (gsize) y * undo->area[2],
-              undo->area[2]);
-      memcpy (masks->remove + to, undo->remove + (gsize) y * undo->area[2],
-              undo->area[2]);
+      for (y = 0; y < undo->area[3]; y++)
+        memcpy (m + (gsize) (undo->area[1] + y) * masks->width + undo->area[0],
+                undo->masks[k] + (gsize) y * undo->area[2], undo->area[2]);
     }
 }
 
 void
 masks_undo_free (MasksUndo *undo)
 {
+  gint k;
+
   if (!undo)
     return;
-  g_free (undo->keep);
-  g_free (undo->remove);
+  for (k = 0; k < MASK_N_KINDS; k++)
+    g_free (undo->masks[k]);
   g_free (undo);
 }

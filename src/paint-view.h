@@ -29,6 +29,7 @@ typedef enum
 {
   PAINT_TOOL_KEEP,
   PAINT_TOOL_REMOVE,
+  PAINT_TOOL_RIGID,
   PAINT_TOOL_ERASE
 } PaintTool;
 

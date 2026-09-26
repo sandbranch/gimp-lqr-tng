@@ -150,7 +150,9 @@ static gchar *
 parasite_text (GimpLayer *target,
                MaskKind   kind)
 {
-  return g_strdup_printf ("%s %u", kind == MASK_KEEP ? "keep" : "remove",
+  const gchar *names[MASK_N_KINDS] = { "keep", "remove", "rigid" };
+
+  return g_strdup_printf ("%s %u", names[kind],
                           gimp_item_get_tattoo (GIMP_ITEM (target)));
 }
 
@@ -210,8 +212,15 @@ find_in (GList       *layers,
 static const gchar *
 mask_name (MaskKind kind)
 {
-  return kind == MASK_KEEP ? _("Keep (Liquid Rescale TNG)")
-                           : _("Remove (Liquid Rescale TNG)");
+  switch (kind)
+    {
+    case MASK_KEEP:
+      return _("Keep (Liquid Rescale TNG)");
+    case MASK_REMOVE:
+      return _("Remove (Liquid Rescale TNG)");
+    default:
+      return _("Straight (Liquid Rescale TNG)");
+    }
 }
 
 void
@@ -222,9 +231,12 @@ layer_io_mark_mask (GimpLayer *layer,
   gchar        *text = parasite_text (target, kind);
   GimpParasite *parasite;
 
-  /* stored by Liquid Rescale Paint: now under this plug-in's names */
-  if (has_parasite (layer, MASK_PARASITE_OLD, text))
+  /* stored by Liquid Rescale Paint (for this layer, or for the layer of
+   * which layer is a copy): now under this plug-in's names */
+  parasite = gimp_item_get_parasite (GIMP_ITEM (layer), MASK_PARASITE_OLD);
+  if (parasite)
     {
+      gimp_parasite_free (parasite);
       gimp_item_detach_parasite (GIMP_ITEM (layer), MASK_PARASITE_OLD);
       gimp_item_set_name (GIMP_ITEM (layer), mask_name (kind));
     }
@@ -311,10 +323,11 @@ layer_io_store_mask (GimpImage    *image,
         }
       else
         {
-          /* green or red, which layer_io_read_over () reads back as a */
+          /* green, red or blue, which layer_io_read_over () reads back
+           * as a */
           p[0] = kind == MASK_REMOVE ? 1.0f : 0.0f;
           p[1] = kind == MASK_KEEP ? 1.0f : 0.0f;
-          p[2] = 0.0f;
+          p[2] = kind == MASK_RIGID ? 1.0f : 0.0f;
           p[3] = a;
         }
     }
