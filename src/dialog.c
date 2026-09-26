@@ -588,7 +588,7 @@ lqr_paint_dialog (GimpProcedure       *procedure,
   Dialog     d = { 0 };
   GtkWidget *dialog, *content, *columns, *left, *right, *tools, *button;
   GtkWidget *keep, *box, *grid, *expander, *fine, *show, *label;
-  gint       view_w, view_h, max, width, height;
+  gint       view_w, view_h, max;
   gboolean   run;
 
   d.config       = config;
@@ -614,11 +614,11 @@ lqr_paint_dialog (GimpProcedure       *procedure,
       return FALSE;
     }
 
-  g_object_get (config, "width", &width, "height", &height, NULL);
-  if (width == 0 || height == 0)
-    g_object_set (config,
-                  "width", width ? width : d.layer_width,
-                  "height", height ? height : d.layer_height, NULL);
+  /* the size is the layer's to start with: a size kept from the last run
+   * was for another layer */
+  g_object_set (config,
+                "width", d.layer_width,
+                "height", d.layer_height, NULL);
 
   add_style ();
   dialog = gimp_procedure_dialog_new (procedure, config,

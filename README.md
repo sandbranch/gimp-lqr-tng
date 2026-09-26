@@ -61,8 +61,17 @@ Restart GIMP after installing.
 The unit tests (`tests/unit`) check the seam carving and the masks without
 GIMP; `tests/gimp-test.py` runs the plug-in on generated images of every
 precision and type and checks the results pixel by pixel, in a throwaway
-GIMP profile. `tests/gui/` opens the dialog on a Broadway display for
-looking at it and for screenshots.
+GIMP profile.
+
+    tests/gui/gui-test.sh        the dialog as a user would use it
+    tests/gui/start.sh [photo]   the dialog to try by hand
+
+`gui-test.sh` opens the dialog on a Broadway display (GTK in a web page)
+and drives it from a headless Chrome with
+[gimp-plugin-devtools](https://github.com/sandbranch/gimp-plugin-devtools)'
+`gui/cdp.mjs`: it paints a red post with Remove, presses Size to remove the
+red and Rescale, and checks that the post is gone, the tree whole, and the
+mask layer stored. Screenshots of each step are left in `tests/output/gui/`.
 
 ## License
 
