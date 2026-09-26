@@ -1,0 +1,9 @@
+option('plugindir', type: 'string', value: '',
+  description: 'Folder of GIMP plug-ins, default: the system folder of GIMP. '
+    + 'For a user installation use e.g. ~/.config/GIMP/3.2/plug-ins')
+option('plugin', type: 'feature', value: 'enabled',
+  description: 'Build the GIMP plug-in; disabled builds only the seam '
+    + 'carving and its unit tests, which need no GIMP')
+option('bundled_liblqr', type: 'feature', value: 'auto',
+  description: 'Build liblqr from source and link it in: auto uses the '
+    + 'system library if there is one')

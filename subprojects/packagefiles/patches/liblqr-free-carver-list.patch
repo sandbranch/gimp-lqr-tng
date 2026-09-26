@@ -1,0 +1,15 @@
+Free the nodes of a carver list when destroying it
+
+lqr_carver_list_destroy () destroyed the carvers of the list but not the
+list nodes, 16 bytes per attached carver (LeakSanitizer).
+
+--- a/lqr/lqr_carver_list.c
++++ b/lqr/lqr_carver_list.c
+@@ -63,6 +63,7 @@ lqr_carver_list_destroy(LqrCarverList *list)
+         lqr_carver_list_destroy(now->next);
+         lqr_carver_list_destroy(now->current->attached_list);
+         lqr_carver_destroy(now->current);
++        g_free(now);
+     }
+ }
+ 

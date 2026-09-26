@@ -1,0 +1,5 @@
+build/
+build-*/
+subprojects/liblqr/
+subprojects/.wraplock
+tests/output/
