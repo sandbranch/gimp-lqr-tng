@@ -1,9 +1,10 @@
 #!/bin/sh
 # Tests the dialog as a user would, on a Broadway display: opens it on the
-# generated scene (tests/gui/start.sh), paints the red post with Remove,
-# presses Size to remove the red and Rescale, and checks the result: the
-# post is gone, the green tree is whole, the layer is narrower and the
-# Remove mask layer was stored, hidden. Screenshots of each step are left
+# generated scene (tests/gui/start.sh), paints the red post with Remove and
+# a line of the sky with Straight, presses Size to remove the red and
+# Rescale, and checks the result: the post is gone, the green tree is
+# whole, the layer is narrower and the Remove and Straight mask layers
+# were stored, hidden. Screenshots of each step are left
 # in tests/output/gui/. Run tests/run.sh first (it builds and installs the
 # plug-in into the test profile), and close GIMP.
 #
@@ -30,12 +31,17 @@ pass "the dialog opened"
 
 # the positions are from the dialog's top left corner
 $cdp $view shot:"$out/01-open.png" >/dev/null
-# Remove, then a stroke down the post, then Size to remove the red
+# Remove, then a stroke down the post, Straight and a stroke across the
+# sky, then Size to remove the red
 $cdp $view click:"$(p 166 100)" wait:300 \
      down:"$(p 403 272)" move:"$(p 403 300)" move:"$(p 403 330)" \
      move:"$(p 403 360)" move:"$(p 403 384)" up:"$(p 403 384)" wait:800 \
-     click:"$(p 665 591)" wait:2500 shot:"$out/02-remove.png" >/dev/null
-$cdp $view click:"$(p 1007 814)" >/dev/null
+     click:"$(p 262 100)" wait:300 \
+     down:"$(p 80 170)" move:"$(p 110 170)" move:"$(p 150 170)" \
+     up:"$(p 150 170)" wait:800 \
+     click:"$(p 157 602)" move:"$(p 700 620)" wait:2500 \
+     shot:"$out/02-remove.png" >/dev/null
+$cdp $view click:"$(p 1007 729)" >/dev/null
 
 i=0
 while [ ! -f "$out/result.png" ] && [ $i -lt 60 ]; do
@@ -52,6 +58,9 @@ grep -q '^status success$' "$out/result.txt" && pass "Rescale succeeded" ||
 grep -q '^layer Remove (Liquid Rescale TNG) .* visible=False$' "$out/result.txt" &&
   pass "the Remove mask layer was stored, hidden" ||
   fail "no hidden Remove mask layer: $(cat "$out/result.txt")"
+grep -q '^layer Straight (Liquid Rescale TNG) .* visible=False$' "$out/result.txt" &&
+  pass "the Straight mask layer was stored, hidden" ||
+  fail "no hidden Straight mask layer: $(cat "$out/result.txt")"
 
 python3 - "$out" <<'EOF' || status=1
 import sys

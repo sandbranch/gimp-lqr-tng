@@ -9,7 +9,7 @@
 # The steps are those of gimp-plugin-devtools/gui/cdp.mjs, with click,
 # down, move and up at positions from the dialog's top left corner, e.g.
 #
-#   tests/gui/look.sh keep click:665,591 wait:2000 click:710,771 wait:2000
+#   tests/gui/look.sh fine click:65,630 wait:1500     (Fine tune open)
 #   LQRT_SCENE=300x500 tests/gui/look.sh portrait
 #
 # LQRT_SCENE is the size of the generated scene (480x300 by default),
