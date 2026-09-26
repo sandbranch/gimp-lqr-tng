@@ -43,6 +43,7 @@ carve_options_init (CarveOptions *options,
   options->order        = CARVE_ORDER_WIDTH_FIRST;
   options->strength     = 1000.0;
   options->restore_size = FALSE;
+  options->seams        = FALSE;
 }
 
 CarveJob *
@@ -293,6 +294,95 @@ attach_image (LqrCarver        *carver,
   return aux;
 }
 
+/* the rigidity mask: see CARVE_STRAIGHT_RIGIDITY; the rigidity of the
+ * carver is that of a fully painted pixel */
+static gdouble
+straight_rigidity (const CarveOptions *options)
+{
+  return 3.0 * MAX (MAX (options->rigidity, 0.0), CARVE_STRAIGHT_RIGIDITY);
+}
+
+static LqrRetVal
+add_rigidity (LqrCarver          *carver,
+              const CarveImage   *rigid,
+              const CarveOptions *options)
+{
+  gsize     n = (gsize) rigid->width * rigid->height, i;
+  gdouble   base = MAX (options->rigidity, 0.0);
+  gdouble   full = straight_rigidity (options);
+  gdouble  *values;
+  LqrRetVal ret;
+
+  values = g_try_new (gdouble, n);
+  if (!values)
+    return LQR_NOMEM;
+  for (i = 0; i < n; i++)
+    values[i] = (base + CLAMP (rigid->pixels[i], 0.0f, 1.0f) * (full - base)) /
+                full;
+  ret = lqr_carver_rigmask_add (carver, values);
+  g_free (values);
+  return ret;
+}
+
+/* liblqr's seam maps, one per pass */
+static gboolean
+read_seams (LqrCarver   *carver,
+            CarveResult *result)
+{
+  LqrVMapList *list;
+  gint         n = 0;
+
+  for (list = lqr_vmap_list_start (carver); list; list = lqr_vmap_list_next (list))
+    n++;
+  if (n == 0)
+    return TRUE;
+  result->seams = g_try_new0 (CarveSeams, n);
+  if (!result->seams)
+    return FALSE;
+
+  for (list = lqr_vmap_list_start (carver); list; list = lqr_vmap_list_next (list))
+    {
+      LqrVMap    *vmap = lqr_vmap_list_current (list);
+      CarveSeams *seams = &result->seams[result->n_seams];
+      gint       *data = lqr_vmap_get_data (vmap);
+      gint        depth = lqr_vmap_get_depth (vmap);
+      gsize       size, i;
+
+      seams->height       = lqr_vmap_get_orientation (vmap) != 0;
+      seams->map.width    = lqr_vmap_get_width (vmap);
+      seams->map.height   = lqr_vmap_get_height (vmap);
+      seams->map.channels = 1;
+      size = (gsize) seams->map.width * seams->map.height;
+      seams->map.pixels = g_try_new (gfloat, size);
+      if (!seams->map.pixels)
+        return FALSE;
+      result->n_seams++;
+      for (i = 0; i < size; i++)
+        seams->map.pixels[i] = data[i] == 0 ? 0.0f :
+                               (gfloat) (depth + 1 - data[i]) / (depth + 1);
+    }
+  return TRUE;
+}
+
+void
+carve_result_clear (CarveResult *result)
+{
+  gint i;
+
+  g_clear_pointer (&result->image.pixels, g_free);
+  g_clear_pointer (&result->keep.pixels, g_free);
+  g_clear_pointer (&result->remove.pixels, g_free);
+  g_clear_pointer (&result->rigid.pixels, g_free);
+  for (i = 0; i < result->n_extras; i++)
+    g_free (result->extras[i].pixels);
+  g_clear_pointer (&result->extras, g_free);
+  result->n_extras = 0;
+  for (i = 0; i < result->n_seams; i++)
+    g_free (result->seams[i].map.pixels);
+  g_clear_pointer (&result->seams, g_free);
+  result->n_seams = 0;
+}
+
 gboolean
 carve (const CarveImage   *image,
        const CarveImage   *keep,
@@ -305,49 +395,71 @@ carve (const CarveImage   *image,
        CarveImage         *remove_result,
        GError            **error)
 {
-  return carve_full (image, keep, remove, options, progress, job, result,
-                     keep_result, remove_result, NULL, 0, NULL, error);
+  CarveInput  input = { keep, remove, NULL,
+                        keep_result != NULL || remove_result != NULL,
+                        NULL, 0 };
+  CarveResult out;
+
+  if (!carve_full (image, &input, options, progress, job, &out, error))
+    {
+      memset (result, 0, sizeof (CarveImage));
+      if (keep_result)
+        memset (keep_result, 0, sizeof (CarveImage));
+      if (remove_result)
+        memset (remove_result, 0, sizeof (CarveImage));
+      return FALSE;
+    }
+  *result = out.image;
+  out.image.pixels = NULL;
+  if (keep_result)
+    {
+      *keep_result = out.keep;
+      out.keep.pixels = NULL;
+    }
+  if (remove_result)
+    {
+      *remove_result = out.remove;
+      out.remove.pixels = NULL;
+    }
+  carve_result_clear (&out);
+  return TRUE;
 }
 
 gboolean
 carve_full (const CarveImage   *image,
-            const CarveImage   *keep,
-            const CarveImage   *remove,
+            const CarveInput   *input,
             const CarveOptions *options,
             LqrProgress        *progress,
             CarveJob           *job,
-            CarveImage         *result,
-            CarveImage         *keep_result,
-            CarveImage         *remove_result,
-            const CarveImage   *extras,
-            gint                n_extras,
-            CarveImage         *extra_results,
+            CarveResult        *result,
             GError            **error)
 {
   LqrCarver  *carver = NULL, *keep_carver = NULL, *remove_carver = NULL;
+  LqrCarver  *rigid_carver = NULL;
   LqrCarver **extra_carvers = NULL;
+  const CarveImage *keep, *remove, *rigid;
   CarveOrder  order;
   gfloat     *pixels;
   LqrRetVal   ret = LQR_OK;
   gboolean    ok = FALSE;
-  gint        i;
+  gint        n_extras, i;
 
   g_return_val_if_fail (image != NULL && image->pixels != NULL, FALSE);
   g_return_val_if_fail (image->channels >= 1 && image->channels <= 4, FALSE);
-  g_return_val_if_fail (options != NULL && result != NULL, FALSE);
-  g_return_val_if_fail (n_extras == 0 || (extras && extra_results), FALSE);
+  g_return_val_if_fail (input != NULL && options != NULL && result != NULL,
+                        FALSE);
+  g_return_val_if_fail (input->n_extras == 0 || input->extras, FALSE);
 
-  memset (result, 0, sizeof (CarveImage));
-  if (keep_result)
-    memset (keep_result, 0, sizeof (CarveImage));
-  if (remove_result)
-    memset (remove_result, 0, sizeof (CarveImage));
-  for (i = 0; i < n_extras; i++)
-    memset (&extra_results[i], 0, sizeof (CarveImage));
+  keep     = input->keep;
+  remove   = input->remove;
+  rigid    = input->rigid;
+  n_extras = input->n_extras;
+  memset (result, 0, sizeof (CarveResult));
 
-  ok = size_matches (keep, image, 1) && size_matches (remove, image, 1);
+  ok = size_matches (keep, image, 1) && size_matches (remove, image, 1) &&
+       size_matches (rigid, image, 1);
   for (i = 0; i < n_extras; i++)
-    ok = ok && size_matches (&extras[i], image, 0);
+    ok = ok && size_matches (&input->extras[i], image, 0);
   if (!ok)
     {
       g_set_error_literal (error, CARVE_ERROR, CARVE_ERROR_FAILED,
@@ -383,20 +495,26 @@ carve_full (const CarveImage   *image,
   if (progress)
     lqr_carver_set_progress (carver, progress);
 
-  ret = lqr_carver_init (carver, 1, (gfloat) MAX (options->rigidity, 0.0));
+  ret = lqr_carver_init (carver, 1,
+                         (gfloat) (rigid ? straight_rigidity (options)
+                                         : MAX (options->rigidity, 0.0)));
   if (ret == LQR_OK)
     ret = add_bias (carver, keep, remove, options->strength,
                     image->width, image->height);
+  if (ret == LQR_OK && rigid)
+    ret = add_rigidity (carver, rigid, options);
   /* the masks follow the seams: for the result, and the kept parts for
    * carving back to the original size */
-  if (ret == LQR_OK && keep && (keep_result || options->restore_size))
+  if (ret == LQR_OK && keep && (input->masks_along || options->restore_size))
     keep_carver = attach_image (carver, keep, &ret);
-  if (ret == LQR_OK && remove && remove_result)
+  if (ret == LQR_OK && remove && input->masks_along)
     remove_carver = attach_image (carver, remove, &ret);
+  if (ret == LQR_OK && rigid && input->masks_along)
+    rigid_carver = attach_image (carver, rigid, &ret);
   if (n_extras > 0)
     extra_carvers = g_new0 (LqrCarver *, n_extras);
   for (i = 0; i < n_extras && ret == LQR_OK; i++)
-    extra_carvers[i] = attach_image (carver, &extras[i], &ret);
+    extra_carvers[i] = attach_image (carver, &input->extras[i], &ret);
   if (ret != LQR_OK)
     goto out;
 
@@ -404,6 +522,8 @@ carve_full (const CarveImage   *image,
   lqr_carver_set_resize_order (carver, order == CARVE_ORDER_WIDTH_FIRST ?
                                        LQR_RES_ORDER_HOR : LQR_RES_ORDER_VERT);
   lqr_carver_set_side_switch_frequency (carver, 2);
+  if (options->seams)
+    lqr_carver_set_dump_vmaps (carver);
   ret = lqr_carver_set_enl_step (carver, (gfloat) CLAMP (options->max_enlarge,
                                                          1.05, 2.0));
   if (ret != LQR_OK)
@@ -419,7 +539,8 @@ carve_full (const CarveImage   *image,
       (options->width != image->width || options->height != image->height))
     {
       /* start again from the carved image, steered by the carved "keep"
-       * mask only: what was painted "remove" is gone */
+       * mask only: what was painted "remove" is gone. The rigidity mask
+       * stays with the carver. */
       ret = lqr_carver_flatten (carver);
       if (ret == LQR_OK)
         lqr_carver_bias_clear (carver);
@@ -445,20 +566,27 @@ carve_full (const CarveImage   *image,
   if (ret != LQR_OK)
     goto out;
 
-  if (!read_carver (carver, result) ||
-      (keep_result && keep_carver && !read_carver (keep_carver, keep_result)) ||
-      (remove_result && remove_carver &&
-       !read_carver (remove_carver, remove_result)))
+  ret = LQR_NOMEM;
+  if (!read_carver (carver, &result->image))
+    goto out;
+  if (input->masks_along &&
+      ((keep_carver && !read_carver (keep_carver, &result->keep)) ||
+       (remove_carver && !read_carver (remove_carver, &result->remove)) ||
+       (rigid_carver && !read_carver (rigid_carver, &result->rigid))))
+    goto out;
+  if (n_extras > 0)
     {
-      ret = LQR_NOMEM;
-      goto out;
-    }
-  for (i = 0; i < n_extras; i++)
-    if (!read_carver (extra_carvers[i], &extra_results[i]))
-      {
-        ret = LQR_NOMEM;
+      result->extras = g_try_new0 (CarveImage, n_extras);
+      if (!result->extras)
         goto out;
-      }
+      result->n_extras = n_extras;
+      for (i = 0; i < n_extras; i++)
+        if (!read_carver (extra_carvers[i], &result->extras[i]))
+          goto out;
+    }
+  if (options->seams && !read_seams (carver, result))
+    goto out;
+  ret = LQR_OK;
   ok = TRUE;
 
 out:
@@ -468,13 +596,7 @@ out:
   g_free (extra_carvers);
   if (!ok)
     {
-      g_clear_pointer (&result->pixels, g_free);
-      if (keep_result)
-        g_clear_pointer (&keep_result->pixels, g_free);
-      if (remove_result)
-        g_clear_pointer (&remove_result->pixels, g_free);
-      for (i = 0; i < n_extras; i++)
-        g_clear_pointer (&extra_results[i].pixels, g_free);
+      carve_result_clear (result);
       set_error (error, ret == LQR_OK ? LQR_ERROR : ret);
     }
   return ok;

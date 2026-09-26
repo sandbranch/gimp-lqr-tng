@@ -3,7 +3,7 @@ url = https://github.com/carlobaldassi/liblqr.git
 revision = 0b62a476f98d4d9e960b23abf1327a387cf0f525
 depth = 1
 patch_directory = liblqr
-diff_files = patches/liblqr-free-carver-list.patch
+diff_files = patches/liblqr-free-carver-list.patch, patches/liblqr-free-vmap-list.patch
 
 [provide]
 lqr-1 = liblqr_dep

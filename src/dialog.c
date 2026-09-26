@@ -18,7 +18,8 @@
  * On the left, the layer to paint on, with the tools above it; on the
  * right, the result as it will be, carved in a thread on a copy of the
  * layer at the size shown (so it is quick, and close to the real result,
- * which is carved at full size), and the settings under it.
+ * which is carved at full size). Under them the size, what comes after
+ * carving, and the finer settings.
  */
 
 #include "config.h"
@@ -61,6 +62,8 @@ typedef struct
   GtkWidget           *undo_button;
   GtkWidget           *width_label;
   GtkWidget           *height_label;
+  GtkWidget           *chain;         /* width and height in proportion */
+  gboolean             linking;       /* setting the other side */
 
   GtkWidget           *result_area;
   GtkWidget           *result_label;
@@ -77,11 +80,10 @@ typedef struct
 typedef struct
 {
   const CarveImage *image;
-  CarveImage        keep;
-  CarveImage        remove;
+  CarveImage        masks[MASK_N_KINDS];
   CarveOptions      options;
   CarveJob         *job;
-  CarveImage        result;
+  CarveResult       result;
   gboolean          ok;
   GError           *error;
 } PreviewTask;
@@ -137,31 +139,35 @@ on_result_draw (GtkWidget *widget,
 {
   gint    w = gtk_widget_get_allocated_width (widget);
   gint    h = gtk_widget_get_allocated_height (widget);
-  gdouble scale, rw, rh, bw, bh, x, y;
-  gint    cx, cy;
+  gdouble rw, rh, bw, bh, x, y;
+  gint    cx, cy, fw, fh;
+  CarveOptions options;
 
   if (!d->result)
     return TRUE;
 
-  /* the result at the scale of the layer on the left; the box around it
-   * is the result, or, when the image keeps its size, at least the
-   * layer's old size, with the empty strip showing; smaller to fit */
-  scale = d->view_scale / d->carve_scale;
-  rw = cairo_image_surface_get_width (d->result) * scale;
-  rh = cairo_image_surface_get_height (d->result) * scale;
+  /* the result at the scale of the layer on the left, at its final size
+   * (scaled back, when it is); the box around it is the result, or, when
+   * the image keeps its size, at least the layer's old size, with the
+   * empty strip showing; smaller to fit */
+  lqr_tng_options_from_config (d->config, &options, d->layer_width,
+                               d->layer_height);
+  lqr_tng_final_size (d->config, d->layer_width, d->layer_height,
+                      options.width, options.height, &fw, &fh);
+  rw = fw * d->view_scale;
+  rh = fh * d->view_scale;
   bw = rw;
   bh = rh;
   if (gimp_procedure_config_get_choice_id (d->config, "after") ==
       LQR_TNG_AFTER_KEEP)
     {
-      bw = MAX (bw, d->preview.width * scale);
-      bh = MAX (bh, d->preview.height * scale);
+      bw = MAX (bw, d->layer_width * d->view_scale);
+      bh = MAX (bh, d->layer_height * d->view_scale);
     }
   if (bw > w || bh > h)
     {
       gdouble fit = MIN (w / bw, h / bh);
 
-      scale *= fit;
       rw *= fit;
       rh *= fit;
       bw *= fit;
@@ -184,7 +190,8 @@ on_result_draw (GtkWidget *widget,
   cairo_rectangle (cr, x, y, ceil (rw), ceil (rh));
   cairo_clip (cr);
   cairo_translate (cr, x, y);
-  cairo_scale (cr, scale, scale);
+  cairo_scale (cr, rw / cairo_image_surface_get_width (d->result),
+               rh / cairo_image_surface_get_height (d->result));
   cairo_set_source_surface (cr, d->result, 0, 0);
   cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
   cairo_paint (cr);
@@ -197,9 +204,11 @@ on_result_draw (GtkWidget *widget,
 static void
 preview_task_free (PreviewTask *t)
 {
-  g_free (t->keep.pixels);
-  g_free (t->remove.pixels);
-  g_free (t->result.pixels);
+  gint k;
+
+  for (k = 0; k < MASK_N_KINDS; k++)
+    g_free (t->masks[k].pixels);
+  carve_result_clear (&t->result);
   g_clear_error (&t->error);
   carve_job_free (t->job);
   g_free (t);
@@ -211,11 +220,13 @@ preview_thread (GTask        *task,
                 PreviewTask  *t,
                 GCancellable *cancellable)
 {
-  t->ok = carve (t->image,
-                 t->keep.pixels ? &t->keep : NULL,
-                 t->remove.pixels ? &t->remove : NULL,
-                 &t->options, NULL, t->job, &t->result, NULL, NULL,
-                 &t->error);
+  CarveInput input = { NULL, NULL, NULL, FALSE, NULL, 0 };
+
+  input.keep   = t->masks[MASK_KEEP].pixels ? &t->masks[MASK_KEEP] : NULL;
+  input.remove = t->masks[MASK_REMOVE].pixels ? &t->masks[MASK_REMOVE] : NULL;
+  input.rigid  = t->masks[MASK_RIGID].pixels ? &t->masks[MASK_RIGID] : NULL;
+  t->ok = carve_full (t->image, &input, &t->options, NULL, t->job,
+                      &t->result, &t->error);
   g_task_return_boolean (task, TRUE);
 }
 
@@ -223,30 +234,43 @@ static void
 update_result_label (Dialog *d)
 {
   CarveOptions options;
-  gchar       *text;
+  LqrTngAfter  after;
+  LqrTngOutput output;
+  gint         fw, fh;
+  gchar       *size, *how = NULL, *text;
 
   lqr_tng_options_from_config (d->config, &options, d->layer_width,
                                d->layer_height);
-  if (options.restore_size)
-    text = g_strdup_printf (_("Result: %d \303\227 %d pixels (removed at %d "
-                              "\303\227 %d, then carved back)"),
-                            d->layer_width, d->layer_height,
-                            options.width, options.height);
-  else if ((options.width != d->layer_width ||
-            options.height != d->layer_height) &&
-           (gimp_procedure_config_get_choice_id (d->config, "after") !=
-            LQR_TNG_AFTER_CROP ||
+  lqr_tng_final_size (d->config, d->layer_width, d->layer_height,
+                      options.width, options.height, &fw, &fh);
+  after  = gimp_procedure_config_get_choice_id (d->config, "after");
+  output = gimp_procedure_config_get_choice_id (d->config, "output");
+
+  size = g_strdup_printf (_("Result: %d \303\227 %d pixels"), fw, fh);
+  if (after == LQR_TNG_AFTER_RESTORE)
+    how = g_strdup_printf (_("removed at %d \303\227 %d, then carved back"),
+                           options.width, options.height);
+  else if (after >= LQR_TNG_AFTER_SCALE &&
+           (fw != options.width || fh != options.height))
+    how = g_strdup_printf (_("carved to %d \303\227 %d, then scaled"),
+                           options.width, options.height);
+  else if (output == LQR_TNG_OUTPUT_NEW_IMAGE)
+    how = after == LQR_TNG_AFTER_KEEP ?
+          g_strdup_printf (_("in a new image of %d \303\227 %d"),
+                           d->layer_width, d->layer_height) :
+          g_strdup (_("in a new image"));
+  else if ((fw != d->layer_width || fh != d->layer_height) &&
+           (after == LQR_TNG_AFTER_KEEP ||
             !lqr_tng_covers_canvas (d->image, d->layer)))
-    text = g_strdup_printf (_("Result: %d \303\227 %d pixels (the image "
-                              "stays %d \303\227 %d)"),
-                            options.width, options.height,
-                            gimp_image_get_width (d->image),
-                            gimp_image_get_height (d->image));
-  else
-    text = g_strdup_printf (_("Result: %d \303\227 %d pixels"),
-                            options.width, options.height);
+    how = g_strdup_printf (_("the image stays %d \303\227 %d"),
+                           gimp_image_get_width (d->image),
+                           gimp_image_get_height (d->image));
+
+  text = how ? g_strdup_printf ("%s (%s)", size, how) : g_strdup (size);
   gtk_label_set_text (GTK_LABEL (d->result_label), text);
   g_free (text);
+  g_free (how);
+  g_free (size);
 }
 
 static void
@@ -265,7 +289,7 @@ preview_done (GObject      *source,
   if (t->ok && !d->again)
     {
       g_clear_pointer (&d->result, cairo_surface_destroy);
-      d->result = surface_from (&t->result, d->format);
+      d->result = surface_from (&t->result.image, d->format);
       gtk_widget_queue_draw (d->result_area);
     }
   else if (!t->ok && !d->again)
@@ -318,6 +342,7 @@ start_preview (gpointer data)
   Dialog      *d = data;
   PreviewTask *t;
   GTask       *task;
+  gint         k;
 
   d->timeout = 0;
   if (d->running)
@@ -338,10 +363,12 @@ start_preview (gpointer data)
                                     d->preview.width, d->carve_scale);
   t->options.height = preview_size (t->options.height, d->layer_height,
                                     d->preview.height, d->carve_scale);
-  t->keep = (CarveImage) { d->preview.width, d->preview.height, 1,
-                           preview_mask (d, MASK_KEEP) };
-  t->remove = (CarveImage) { d->preview.width, d->preview.height, 1,
-                             preview_mask (d, MASK_REMOVE) };
+  for (k = 0; k < MASK_N_KINDS; k++)
+    t->masks[k] = (CarveImage) { d->preview.width, d->preview.height, 1,
+                                 preview_mask (d, k) };
+  /* scaled back and drawn seams are not previewed: the scaling is done
+   * when drawing */
+  t->options.seams = FALSE;
   t->job = carve_job_new ();
   d->job = t->job;
   d->running = TRUE;
@@ -392,8 +419,8 @@ on_config_changed (GObject    *config,
       paint_view_set_brush (d->paint, size);
       return;
     }
-  if (strcmp (name, "keep-layer") == 0 || strcmp (name, "remove-layer") == 0 ||
-      strcmp (name, "carve-masks") == 0)
+  if (g_str_has_suffix (name, "-layer") || strcmp (name, "carve-masks") == 0 ||
+      g_str_has_prefix (name, "seams-") || strcmp (name, "output-seams") == 0)
     return;
 
   /* 0 (as after Reset) is the layer's size */
@@ -404,6 +431,24 @@ on_config_changed (GObject    *config,
                     "width", width ? width : d->layer_width,
                     "height", height ? height : d->layer_height,
                     NULL);
+      return;
+    }
+
+  /* linked: the other side in proportion to the layer */
+  if (!d->linking && d->chain &&
+      gimp_chain_button_get_active (GIMP_CHAIN_BUTTON (d->chain)) &&
+      (strcmp (name, "width") == 0 || strcmp (name, "height") == 0))
+    {
+      d->linking = TRUE;
+      if (strcmp (name, "width") == 0)
+        g_object_set (config, "height",
+                      MAX (1, (gint) floor ((gdouble) width * d->layer_height /
+                                            d->layer_width + 0.5)), NULL);
+      else
+        g_object_set (config, "width",
+                      MAX (1, (gint) floor ((gdouble) height * d->layer_width /
+                                            d->layer_height + 0.5)), NULL);
+      d->linking = FALSE;
       return;
     }
   if (d->width_label)
@@ -475,6 +520,9 @@ on_fit_remove (GtkButton *button,
   amount_w = (gint) ceil ((gdouble) across * d->layer_width / masks->width) + 1;
   amount_h = (gint) ceil ((gdouble) down * d->layer_height / masks->height) + 1;
 
+  /* one side only: not in proportion */
+  if (d->chain)
+    gimp_chain_button_set_active (GIMP_CHAIN_BUTTON (d->chain), FALSE);
   if ((gdouble) amount_w / d->layer_width <= (gdouble) amount_h / d->layer_height)
     g_object_set (d->config,
                   "width", MAX (1, d->layer_width - amount_w),
@@ -512,7 +560,7 @@ add_style (void)
   GtkCssProvider *css = gtk_css_provider_new ();
 
   gtk_css_provider_load_from_data (css,
-    "button.lqr-keep, button.lqr-remove {"
+    "button.lqr-keep, button.lqr-remove, button.lqr-rigid {"
     "  background-image: none; color: #ffffff; font-weight: bold;"
     "  padding-left: 14px; padding-right: 14px; }"
     "button.lqr-keep { background-color: #2f9e44; }"
@@ -522,6 +570,10 @@ add_style (void)
     "button.lqr-remove { background-color: #d63a3a; }"
     "button.lqr-remove:hover { background-color: #e03131; }"
     "button.lqr-remove:checked { background-color: #a61e1e;"
+    "  box-shadow: inset 0 0 0 2px #ffffff; }"
+    "button.lqr-rigid { background-color: #2f6fd6; }"
+    "button.lqr-rigid:hover { background-color: #3b7de8; }"
+    "button.lqr-rigid:checked { background-color: #1f4fa6;"
     "  box-shadow: inset 0 0 0 2px #ffffff; }",
     -1, NULL);
   gtk_style_context_add_provider_for_screen (gdk_screen_get_default (),
@@ -549,11 +601,32 @@ size_row (GtkGrid     *grid,
   *percent = gtk_label_new (NULL);
   gtk_widget_set_halign (*percent, GTK_ALIGN_END);
   gtk_label_set_width_chars (GTK_LABEL (*percent), 6);
+  /* the chain goes in column 2 */
   gtk_grid_attach (grid, name, 0, row, 1, 1);
   gtk_grid_attach (grid, spin, 1, row, 1, 1);
-  gtk_grid_attach (grid, unit, 2, row, 1, 1);
-  gtk_grid_attach (grid, *percent, 3, row, 1, 1);
+  gtk_grid_attach (grid, unit, 3, row, 1, 1);
+  gtk_grid_attach (grid, *percent, 4, row, 1, 1);
   return spin;
+}
+
+/* a choice of config as a combo box, with its label, in row of grid */
+static void
+choice_row (GtkGrid     *grid,
+            gint         row,
+            GObject     *config,
+            const gchar *property)
+{
+  GParamSpec *pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (config),
+                                                    property);
+  GtkWidget  *name = gtk_label_new_with_mnemonic (g_param_spec_get_nick (pspec));
+  GtkWidget  *combo = gimp_prop_choice_combo_box_new (config, property);
+
+  gtk_widget_set_tooltip_text (combo, g_param_spec_get_blurb (pspec));
+  gtk_label_set_mnemonic_widget (GTK_LABEL (name), combo);
+  gtk_widget_set_halign (name, GTK_ALIGN_START);
+  gtk_widget_set_hexpand (combo, TRUE);
+  gtk_grid_attach (grid, name, 0, row, 1, 1);
+  gtk_grid_attach (grid, combo, 1, row, 1, 1);
 }
 
 /* the masks to start from: those of config, or those this plug-in stored
@@ -561,14 +634,15 @@ size_row (GtkGrid     *grid,
 static Masks *
 load_masks (Dialog *d)
 {
-  const gchar *properties[2] = { "keep-layer", "remove-layer" };
+  const gchar *properties[MASK_N_KINDS] = { "keep-layer", "remove-layer",
+                                            "rigidity-layer" };
   Masks       *masks;
   gint         w, h, k;
 
   masks_work_size (d->layer_width, d->layer_height, &w, &h);
   masks = masks_new (w, h);
   lqr_tng_find_masks (d->image, d->layer, d->config);
-  for (k = 0; k < 2; k++)
+  for (k = 0; k < MASK_N_KINDS; k++)
     {
       GimpLayer *mask = NULL;
       CarveImage rgba = { 0 }, values = { 0 };
@@ -604,10 +678,9 @@ lqr_tng_dialog (GimpProcedure       *procedure,
                 gboolean            *changed)
 {
   Dialog        d = { 0 };
-  GtkWidget    *dialog, *content, *columns, *left, *right, *tools, *button;
+  GtkWidget    *dialog, *content, *layout, *tools, *button;
   GtkWidget    *keep, *box, *grid, *expander, *fine, *show, *label;
-  GtkSizeGroup *tools_height;
-  gint          view_w, view_h, max;
+  gint          view_w, view_h, max, i;
   gboolean      run;
 
   d.config       = config;
@@ -646,16 +719,19 @@ lqr_tng_dialog (GimpProcedure       *procedure,
                                       _("_Rescale"));
   content = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
 
-  columns = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
-  gtk_container_set_border_width (GTK_CONTAINER (columns), 12);
-  gtk_box_pack_start (GTK_BOX (content), columns, TRUE, TRUE, 0);
+  /* two columns of the same width: the layer and the result side by
+   * side, of the same size, the size and what comes after under them,
+   * and the finer settings across both */
+  layout = gtk_grid_new ();
+  gtk_grid_set_column_homogeneous (GTK_GRID (layout), TRUE);
+  gtk_grid_set_column_spacing (GTK_GRID (layout), 12);
+  gtk_grid_set_row_spacing (GTK_GRID (layout), 6);
+  gtk_container_set_border_width (GTK_CONTAINER (layout), 12);
+  gtk_box_pack_start (GTK_BOX (content), layout, TRUE, TRUE, 0);
 
-  /* left: the tools and the layer to paint on */
-  left = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
-  gtk_box_pack_start (GTK_BOX (columns), left, FALSE, FALSE, 0);
-
+  /* the tools */
   tools = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
-  gtk_box_pack_start (GTK_BOX (left), tools, FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout), tools, 0, 0, 1, 1);
   keep = tool_button (NULL, _("_Keep"),
                       _("Paint in green what must keep its shape"),
                       "lqr-keep", PAINT_TOOL_KEEP, &d);
@@ -663,6 +739,11 @@ lqr_tng_dialog (GimpProcedure       *procedure,
   button = tool_button (keep, _("Re_move"),
                         _("Paint in red what should go"),
                         "lqr-remove", PAINT_TOOL_REMOVE, &d);
+  gtk_box_pack_start (GTK_BOX (tools), button, FALSE, FALSE, 0);
+  button = tool_button (keep, _("Stra_ight"),
+                        _("Paint over lines that must stay straight: the "
+                          "seams bend less there"),
+                        "lqr-rigid", PAINT_TOOL_RIGID, &d);
   gtk_box_pack_start (GTK_BOX (tools), button, FALSE, FALSE, 0);
   button = tool_button (keep, _("_Eraser"),
                         _("Take paint away (also the right mouse button)"),
@@ -679,6 +760,7 @@ lqr_tng_dialog (GimpProcedure       *procedure,
   g_signal_connect (d.undo_button, "clicked", G_CALLBACK (on_undo), &d);
   gtk_box_pack_end (GTK_BOX (tools), d.undo_button, FALSE, FALSE, 0);
 
+  /* the layer to paint on, and the brush */
   d.paint = paint_view_new (layer_surface (&d, view_w, view_h),
                             load_masks (&d), on_masks_changed, &d);
   {
@@ -687,13 +769,13 @@ lqr_tng_dialog (GimpProcedure       *procedure,
     g_object_get (config, "brush-size", &size, NULL);
     paint_view_set_brush (d.paint, size);
   }
-  gtk_box_pack_start (GTK_BOX (left),
-                      frame (_("Paint what to keep and what to remove"),
-                             paint_view_get_widget (d.paint)),
-                      FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout),
+                   frame (_("Paint on the layer"),
+                          paint_view_get_widget (d.paint)),
+                   0, 1, 1, 1);
 
   box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
-  gtk_box_pack_start (GTK_BOX (left), box, FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout), box, 0, 2, 1, 1);
   gtk_box_pack_start (GTK_BOX (box),
                       gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
                                                         "brush-size",
@@ -704,23 +786,12 @@ lqr_tng_dialog (GimpProcedure       *procedure,
   g_signal_connect (show, "toggled", G_CALLBACK (on_show_masks), &d);
   gtk_box_pack_start (GTK_BOX (box), show, FALSE, FALSE, 0);
 
-  /* right: the result, and the settings; the result starts as far down
-   * as the layer, beside it */
-  right = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
-  gtk_box_pack_start (GTK_BOX (columns), right, TRUE, TRUE, 0);
-  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start (GTK_BOX (right), box, FALSE, FALSE, 0);
-  tools_height = gtk_size_group_new (GTK_SIZE_GROUP_VERTICAL);
-  gtk_size_group_add_widget (tools_height, tools);
-  gtk_size_group_add_widget (tools_height, box);
-  g_object_unref (tools_height);
-
-  box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
-  /* as large as the layer on the left: a larger result is shown smaller */
+  /* the result, as large as the layer: a larger result is shown smaller */
   d.result_area = gtk_drawing_area_new ();
   gtk_widget_set_size_request (d.result_area, view_w, view_h);
   g_signal_connect (d.result_area, "draw", G_CALLBACK (on_result_draw), &d);
-  gtk_box_pack_start (GTK_BOX (box), d.result_area, FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout), frame (_("Preview"), d.result_area),
+                   1, 1, 1, 1);
   label = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   d.spinner = gtk_spinner_new ();
   gtk_box_pack_start (GTK_BOX (label), d.spinner, FALSE, FALSE, 0);
@@ -728,10 +799,9 @@ lqr_tng_dialog (GimpProcedure       *procedure,
   gtk_label_set_xalign (GTK_LABEL (d.result_label), 0.0);
   gtk_label_set_line_wrap (GTK_LABEL (d.result_label), TRUE);
   gtk_box_pack_start (GTK_BOX (label), d.result_label, TRUE, TRUE, 0);
-  gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (right), frame (_("Result (preview)"), box),
-                      FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout), label, 1, 2, 1, 1);
 
+  /* the size, with the chain to keep the proportions */
   box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
   grid = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (grid), 4);
@@ -741,6 +811,13 @@ lqr_tng_dialog (GimpProcedure       *procedure,
             MIN (max, d.layer_width * 10), &d.width_label);
   size_row (GTK_GRID (grid), 1, _("_Height:"), G_OBJECT (config), "height",
             MIN (max, d.layer_height * 10), &d.height_label);
+  d.chain = gimp_chain_button_new (GIMP_CHAIN_RIGHT);
+  gimp_chain_button_set_icon_size (GIMP_CHAIN_BUTTON (d.chain),
+                                   GTK_ICON_SIZE_BUTTON);
+  gtk_widget_set_tooltip_text (d.chain,
+                               _("Keep the width and the height in "
+                                 "proportion"));
+  gtk_grid_attach (GTK_GRID (grid), d.chain, 2, 0, 1, 2);
   gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
   button = gtk_button_new_with_mnemonic (_("_Size to remove the red"));
   gtk_widget_set_tooltip_text (button,
@@ -749,46 +826,64 @@ lqr_tng_dialog (GimpProcedure       *procedure,
   gtk_widget_set_halign (button, GTK_ALIGN_START);
   g_signal_connect (button, "clicked", G_CALLBACK (on_fit_remove), &d);
   gtk_box_pack_start (GTK_BOX (box), button, FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (box),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "after",
-                                                        GIMP_TYPE_INT_RADIO_FRAME),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (right), frame (_("Size"), box), FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout), frame (_("Size"), box), 0, 3, 1, 1);
 
-  fine = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  /* what comes after, and where the result goes */
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 6);
+  choice_row (GTK_GRID (grid), 0, G_OBJECT (config), "after");
+  choice_row (GTK_GRID (grid), 1, G_OBJECT (config), "output");
+  gtk_grid_attach (GTK_GRID (layout), frame (_("Result"), grid), 1, 3, 1, 1);
+
+  /* the finer settings, in two columns across both */
+  fine = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  gtk_box_set_homogeneous (GTK_BOX (fine), TRUE);
   gtk_container_set_border_width (GTK_CONTAINER (fine), 6);
-  gtk_box_pack_start (GTK_BOX (fine),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "rigidity",
-                                                        GIMP_TYPE_SPIN_SCALE),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (fine),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "mask-strength",
-                                                        GIMP_TYPE_SPIN_SCALE),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (fine),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "energy", G_TYPE_NONE),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (fine),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "max-enlarge",
-                                                        GIMP_TYPE_SPIN_SCALE),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (fine),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "order", G_TYPE_NONE),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (fine),
+  box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  gtk_box_pack_start (GTK_BOX (fine), box, TRUE, TRUE, 0);
+  {
+    const gchar *spin_scales[] = { "rigidity", "mask-strength", "max-enlarge" };
+
+    for (i = 0; i < (gint) G_N_ELEMENTS (spin_scales); i++)
+      gtk_box_pack_start (GTK_BOX (box),
+                          gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
+                                                            spin_scales[i],
+                                                            GIMP_TYPE_SPIN_SCALE),
+                          FALSE, FALSE, 0);
+  }
+  gtk_box_pack_start (GTK_BOX (box),
                       gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
                                                         "carve-masks",
                                                         GTK_TYPE_CHECK_BUTTON),
                       FALSE, FALSE, 0);
+  box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  gtk_box_pack_start (GTK_BOX (fine), box, TRUE, TRUE, 0);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 4);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 6);
+  choice_row (GTK_GRID (grid), 0, G_OBJECT (config), "energy");
+  choice_row (GTK_GRID (grid), 1, G_OBJECT (config), "order");
+  gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (box),
+                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
+                                                        "output-seams",
+                                                        GTK_TYPE_CHECK_BUTTON),
+                      FALSE, FALSE, 0);
+  label = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  gtk_widget_set_margin_start (label, 24);
+  for (i = 0; i < 2; i++)
+    gtk_box_pack_start (GTK_BOX (label),
+                        gimp_procedure_dialog_get_color_widget (GIMP_PROCEDURE_DIALOG (dialog),
+                                                                i == 0 ? "seams-color-start"
+                                                                       : "seams-color-end",
+                                                                TRUE,
+                                                                GIMP_COLOR_AREA_FLAT),
+                        FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
   expander = gtk_expander_new_with_mnemonic (_("_Fine tune"));
   gtk_container_add (GTK_CONTAINER (expander), fine);
-  gtk_box_pack_start (GTK_BOX (right), expander, FALSE, FALSE, 0);
+  gtk_grid_attach (GTK_GRID (layout), expander, 0, 4, 2, 1);
 
   g_signal_connect (config, "notify", G_CALLBACK (on_config_changed), &d);
   /* the percentages and the first preview */

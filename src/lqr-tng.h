@@ -32,11 +32,24 @@ G_BEGIN_DECLS
  * argument */
 typedef enum
 {
-  LQR_TNG_AFTER_CROP,     /* the canvas fits the layer, when the layer
-                             * covered all of it */
-  LQR_TNG_AFTER_KEEP,     /* the canvas keeps its size */
-  LQR_TNG_AFTER_RESTORE   /* carved back to the original size */
+  LQR_TNG_AFTER_CROP,         /* the canvas fits the layer, when the layer
+                               * covered all of it */
+  LQR_TNG_AFTER_KEEP,         /* the canvas keeps its size */
+  LQR_TNG_AFTER_RESTORE,      /* carved back to the original size */
+  LQR_TNG_AFTER_SCALE,        /* scaled back to the original size */
+  LQR_TNG_AFTER_SCALE_WIDTH,  /* scaled to the original width, in
+                               * proportion */
+  LQR_TNG_AFTER_SCALE_HEIGHT  /* scaled to the original height, in
+                               * proportion */
 } LqrTngAfter;
+
+/* where the result goes: the ids of the "output" argument */
+typedef enum
+{
+  LQR_TNG_OUTPUT_LAYER,       /* the layer changes */
+  LQR_TNG_OUTPUT_NEW_LAYER,   /* a new layer above it */
+  LQR_TNG_OUTPUT_NEW_IMAGE    /* a new image */
+} LqrTngOutput;
 
 /* the carving settings of config, for a layer of the given size (a width
  * or height of 0 in config keeps the layer's) */
@@ -44,6 +57,16 @@ void lqr_tng_options_from_config (GimpProcedureConfig *config,
                                   CarveOptions        *options,
                                   gint                 layer_width,
                                   gint                 layer_height);
+
+/* the size of the result after scaling back ("after"), for a layer of
+ * layer_width x layer_height carved to width x height */
+void lqr_tng_final_size          (GimpProcedureConfig *config,
+                                  gint                 layer_width,
+                                  gint                 layer_height,
+                                  gint                 width,
+                                  gint                 height,
+                                  gint                *final_width,
+                                  gint                *final_height);
 
 /* whether carving layer to its new size and cropping the image to it
  * would change the canvas: the layer covers all of the canvas */

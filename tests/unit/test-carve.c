@@ -622,53 +622,226 @@ test_extras (void)
 {
   CarveImage   image = noise_image (60, 40, 3, 10, 20, FALSE, 17);
   CarveImage   remove = band_mask (&image, 10, 20, FALSE);
-  CarveImage   extras[2], extra_results[2];
-  CarveImage   result;
+  CarveImage   extras[2];
+  CarveInput   input = { NULL, &remove, NULL, FALSE, extras, 2 };
+  CarveResult  result;
   CarveOptions options;
   CarveJob    *job;
   GError      *error = NULL;
-  gsize        i;
 
   extras[0] = image;
   extras[1] = noise_image (60, 40, 1, 0, 0, FALSE, 18);
   carve_options_init (&options, 45, 30);
-  g_assert_true (carve_full (&image, NULL, &remove, &options, NULL, NULL,
-                             &result, NULL, NULL, extras, 2, extra_results,
-                             &error));
+  g_assert_true (carve_full (&image, &input, &options, NULL, NULL,
+                             &result, &error));
   g_assert_no_error (error);
-  g_assert_cmpint (extra_results[0].width, ==, 45);
-  g_assert_cmpint (extra_results[0].height, ==, 30);
-  g_assert_cmpint (extra_results[1].channels, ==, 1);
-  g_assert_cmpmem (extra_results[0].pixels, (gsize) 45 * 30 * 3 * sizeof (gfloat),
-                   result.pixels, (gsize) 45 * 30 * 3 * sizeof (gfloat));
-  for (i = 0; i < 2; i++)
-    free_image (&extra_results[i]);
-  free_image (&result);
+  g_assert_cmpint (result.n_extras, ==, 2);
+  g_assert_cmpint (result.extras[0].width, ==, 45);
+  g_assert_cmpint (result.extras[0].height, ==, 30);
+  g_assert_cmpint (result.extras[1].channels, ==, 1);
+  g_assert_cmpmem (result.extras[0].pixels, (gsize) 45 * 30 * 3 * sizeof (gfloat),
+                   result.image.pixels, (gsize) 45 * 30 * 3 * sizeof (gfloat));
+  /* no masks asked for, no seams */
+  g_assert_null (result.remove.pixels);
+  g_assert_cmpint (result.n_seams, ==, 0);
+  carve_result_clear (&result);
+  g_assert_null (result.extras);
 
   /* a failure after the checks leaves no results behind */
   job = carve_job_new ();
   carve_job_cancel (job);
-  g_assert_false (carve_full (&image, NULL, &remove, &options, NULL, job,
-                              &result, NULL, NULL, extras, 2, extra_results,
-                              &error));
+  g_assert_false (carve_full (&image, &input, &options, NULL, job,
+                              &result, &error));
   g_assert_error (error, CARVE_ERROR, CARVE_ERROR_CANCELLED);
   g_clear_error (&error);
-  g_assert_null (result.pixels);
-  g_assert_null (extra_results[0].pixels);
-  g_assert_null (extra_results[1].pixels);
+  g_assert_null (result.image.pixels);
+  g_assert_null (result.extras);
   carve_job_free (job);
 
   /* an extra of another size is refused */
   extras[1].width = 59;
-  g_assert_false (carve_full (&image, NULL, NULL, &options, NULL, NULL,
-                              &result, NULL, NULL, extras, 2, extra_results,
-                              &error));
+  g_assert_false (carve_full (&image, &input, &options, NULL, NULL,
+                              &result, &error));
   g_assert_error (error, CARVE_ERROR, CARVE_ERROR_FAILED);
   g_clear_error (&error);
   extras[1].width = 60;
 
   free_image (&extras[1]);
   free_image (&remove);
+  free_image (&image);
+}
+
+/* A straight vertical line (column LINE_X) of its own flat colour,
+ * through a flat object that is left of the line in the top half and
+ * right of it in the bottom half, in noise: the cheapest seams run down
+ * the object and cross the line in the middle, which bends it. Under a
+ * rigidity mask over a band around the line the seams cannot bend there,
+ * so they stay on one side and the line stays straight. */
+#define LINE_X     50
+#define LINE_VALUE 0.9f
+
+static CarveImage
+line_image (void)
+{
+  CarveImage image = noise_image (100, 60, 3, 0, 0, FALSE, 40);
+  gint       x, y, c;
+
+  for (y = 0; y < 60; y++)
+    for (x = 0; x < 100; x++)
+      {
+        gfloat *p = image.pixels + ((gsize) y * 100 + x) * 3;
+
+        if (x == LINE_X)
+          for (c = 0; c < 3; c++)
+            p[c] = LINE_VALUE;
+        else if (y < 30 ? (x >= 25 && x < LINE_X) : (x > LINE_X && x <= 75))
+          for (c = 0; c < 3; c++)
+            p[c] = OBJECT;
+      }
+  return image;
+}
+
+/* the column of the line in every row of result, or -1 if it is not
+ * one column: it moved, or a row lost it */
+static gint
+line_column (const CarveImage *result)
+{
+  gint column = -1, x, y;
+
+  for (y = 0; y < result->height; y++)
+    {
+      gint found = -1;
+
+      for (x = 0; x < result->width; x++)
+        if (result->pixels[((gsize) y * result->width + x) * 3] == LINE_VALUE)
+          found = x;
+      if (found < 0 || (column >= 0 && found != column))
+        return -1;
+      column = found;
+    }
+  return column;
+}
+
+static void
+test_rigidity_mask (void)
+{
+  CarveImage   image = line_image ();
+  CarveImage   rigid = band_mask (&image, LINE_X - 4, LINE_X + 5, FALSE);
+  CarveInput   input = { NULL, NULL, &rigid, TRUE, NULL, 0 };
+  CarveResult  result;
+  CarveImage   plain;
+  CarveOptions options;
+  gint         column, y;
+
+  carve_options_init (&options, 70, 60);
+
+  /* without the mask the line bends, or breaks */
+  g_assert_true (carve (&image, NULL, NULL, &options, NULL, NULL, &plain,
+                        NULL, NULL, NULL));
+  g_assert_cmpint (line_column (&plain), ==, -1);
+  free_image (&plain);
+  /* and so with the rigidity setting at its most, without the mask */
+  options.rigidity = 20.0;
+  g_assert_true (carve (&image, NULL, NULL, &options, NULL, NULL, &plain,
+                        NULL, NULL, NULL));
+  g_assert_cmpint (line_column (&plain), ==, -1);
+  free_image (&plain);
+
+  /* with it, it stays straight: one column in every row, with the
+   * rigidity setting at 0 and at its most */
+  options.rigidity = 0.0;
+  g_assert_true (carve_full (&image, &input, &options, NULL, NULL, &result,
+                             NULL));
+  column = line_column (&result.image);
+  g_assert_cmpint (column, >=, 0);
+  g_assert_true (rows_are_subsequences (&image, &result.image));
+  /* the mask was carved along: it still covers the line */
+  g_assert_cmpint (result.rigid.width, ==, 70);
+  for (y = 0; y < 60; y++)
+    g_assert_cmpfloat (result.rigid.pixels[y * 70 + column], >, 0.5f);
+  carve_result_clear (&result);
+
+  options.rigidity = 20.0;
+  g_assert_true (carve_full (&image, &input, &options, NULL, NULL, &result,
+                             NULL));
+  g_assert_cmpint (line_column (&result.image), >=, 0);
+  carve_result_clear (&result);
+
+  free_image (&rigid);
+  free_image (&image);
+}
+
+/* an empty rigidity mask leaves the carving as the rigidity setting
+ * makes it */
+static void
+test_rigidity_mask_empty (void)
+{
+  CarveImage   image = noise_image (60, 40, 3, 0, 0, FALSE, 41);
+  CarveImage   rigid = band_mask (&image, 0, 0, FALSE);
+  CarveInput   input = { NULL, NULL, &rigid, FALSE, NULL, 0 };
+  CarveResult  result;
+  CarveImage   plain;
+  CarveOptions options;
+
+  carve_options_init (&options, 45, 40);
+  options.rigidity = 3.0;
+  g_assert_true (carve (&image, NULL, NULL, &options, NULL, NULL, &plain,
+                        NULL, NULL, NULL));
+  g_assert_true (carve_full (&image, &input, &options, NULL, NULL, &result,
+                             NULL));
+  g_assert_cmpmem (plain.pixels, (gsize) 45 * 40 * 3 * sizeof (gfloat),
+                   result.image.pixels, (gsize) 45 * 40 * 3 * sizeof (gfloat));
+  carve_result_clear (&result);
+  free_image (&plain);
+  free_image (&rigid);
+  free_image (&image);
+}
+
+/* the seam maps: one per pass, of the size when the pass began, with as
+ * many seam pixels per row (or column) as seams went */
+static void
+test_seams (void)
+{
+  CarveImage   image = noise_image (60, 40, 3, 0, 0, FALSE, 42);
+  CarveInput   input = { 0 };
+  CarveResult  result;
+  CarveOptions options;
+  gint         x, y, n;
+
+  carve_options_init (&options, 45, 32);
+  options.seams = TRUE;
+  g_assert_true (carve_full (&image, &input, &options, NULL, NULL, &result,
+                             NULL));
+  g_assert_cmpint (result.n_seams, ==, 2);
+
+  /* the width first: 60 x 40, 15 seams in each row */
+  g_assert_false (result.seams[0].height);
+  g_assert_cmpint (result.seams[0].map.width, ==, 60);
+  g_assert_cmpint (result.seams[0].map.height, ==, 40);
+  for (y = 0; y < 40; y++)
+    {
+      for (x = 0, n = 0; x < 60; x++)
+        {
+          gfloat v = result.seams[0].map.pixels[y * 60 + x];
+
+          g_assert_cmpfloat (v, >=, 0.0f);
+          g_assert_cmpfloat (v, <=, 1.0f);
+          n += v > 0.0f;
+        }
+      g_assert_cmpint (n, ==, 15);
+    }
+  /* then the height, of the carved width: 8 seams in each column */
+  g_assert_true (result.seams[1].height);
+  g_assert_cmpint (result.seams[1].map.width, ==, 45);
+  g_assert_cmpint (result.seams[1].map.height, ==, 40);
+  for (x = 0; x < 45; x++)
+    {
+      for (y = 0, n = 0; y < 40; y++)
+        n += result.seams[1].map.pixels[y * 45 + x] > 0.0f;
+      g_assert_cmpint (n, ==, 8);
+    }
+  carve_result_clear (&result);
+  g_assert_cmpint (result.n_seams, ==, 0);
   free_image (&image);
 }
 
@@ -697,6 +870,9 @@ main (int    argc,
   g_test_add_func ("/carve/cancel-before", test_cancel_before);
   g_test_add_func ("/carve/cancel-from-thread", test_cancel_from_thread);
   g_test_add_func ("/carve/extras", test_extras);
+  g_test_add_func ("/carve/rigidity-mask", test_rigidity_mask);
+  g_test_add_func ("/carve/rigidity-mask-empty", test_rigidity_mask_empty);
+  g_test_add_func ("/carve/seams", test_seams);
 
   return g_test_run ();
 }

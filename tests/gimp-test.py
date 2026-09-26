@@ -146,15 +146,25 @@ def band(columns=(), rows=(), value=(1.0, 1.0, 1.0, 1.0)):
     return lambda x, y: value if (x in columns or y in rows) else (0, 0, 0, 0)
 
 
-def run(image, drawables, **args):
-    """Runs plug-in-lqr-tng non-interactively; returns the PDB status."""
+def run_full(image, drawables, **args):
+    """Runs plug-in-lqr-tng non-interactively; returns the PDB status, the
+    result layer and the result image."""
     config = PROC.create_config()
     config.set_property('run-mode', args.pop('run_mode', Gimp.RunMode.NONINTERACTIVE))
     config.set_property('image', image)
     config.set_core_object_array('drawables', drawables)
     for key, value in args.items():
         config.set_property(key.replace('_', '-'), value)
-    return PROC.run(config).index(0)
+    values = PROC.run(config)
+    status = values.index(0)
+    if status != Gimp.PDBStatusType.SUCCESS:
+        return status, None, None
+    return status, values.index(1), values.index(2)
+
+
+def run(image, drawables, **args):
+    """Runs plug-in-lqr-tng non-interactively; returns the PDB status."""
+    return run_full(image, drawables, **args)[0]
 
 
 def ok(status):
@@ -202,10 +212,21 @@ def rows_are_subsequences(before, after, exact=True, tol=1e-4):
 def registered():
     check(PROC is not None, 'plug-in-lqr-tng is not registered')
     names = [a.get_name() for a in PROC.get_arguments()]
-    for name in ['width', 'height', 'keep-layer', 'remove-layer', 'after',
-                 'rigidity', 'mask-strength', 'energy', 'max-enlarge', 'order',
-                 'carve-masks']:
-        check(name in names, 'no argument %s' % name)
+    expected = ['run-mode', 'image', 'drawables', 'width', 'height',
+                'keep-layer', 'remove-layer', 'rigidity-layer', 'after',
+                'output', 'rigidity', 'mask-strength', 'energy', 'max-enlarge',
+                'order', 'carve-masks', 'output-seams', 'seams-color-start',
+                'seams-color-end']
+    check(names == expected, 'arguments %s' % names)
+    returns = [a.get_name() for a in PROC.get_return_values()]
+    check(returns == ['result-layer', 'result-image'], 'return values %s' % returns)
+    config = PROC.create_config()
+    for name, default in [('after', 'crop'), ('output', 'layer'),
+                          ('output-seams', False)]:
+        check(config.get_property(name) == default,
+              '%s is %r by default' % (name, config.get_property(name)))
+    # the seam colours' defaults are checked in seams-drawn: GIMP 3.2 does
+    # not hand them to this script's config
     for name in ['restore-size', 'resize-canvas']:
         check(name not in names, 'the old argument %s is still there' % name)
     check(PROC.get_menu_label() == 'Liquid Rescale _TNG...',
@@ -474,6 +495,361 @@ def old_parasite_mask_found():
           'object pixels %d of 300: the old mask was not used'
           % object_count(layer))
     check(size(keep) == (60, 30), 'the old mask was not carved along')
+    # a carved copy for a new layer is the new layer's, under the new name
+    status, result, _ = run_full(image, [layer], width=50, keep_layer=keep,
+                                 output='new-layer')
+    ok(status)
+    copies = [l for l in image.get_layers()
+              if l.get_parasite('gimp-lqr-paint-mask') is not None]
+    check(copies == [keep], 'old parasites on %s' % [l.get_name() for l in copies])
+    copies = [l for l in image.get_layers()
+              if parasite_of(l) == 'keep %d' % result.get_tattoo()]
+    check(len(copies) == 1 and copies[0].get_name() == 'Keep (Liquid Rescale TNG)',
+          'the copy is %s' % [l.get_name() for l in copies])
+    image.delete()
+
+
+# -------------------------------------------------------- straight lines
+
+LINE_X = 50
+LINE = (1.0, 0.5, 0.0)     # an orange line
+
+
+def line_pixel():
+    """Noise with a straight vertical orange line at LINE_X, through a flat
+    object left of the line in the top half and right of it in the bottom
+    half: the cheapest seams run down the object and cross the line."""
+    base = noise(40)
+
+    def pixel(x, y):
+        if x == LINE_X:
+            return LINE + (1.0,)
+        if (25 <= x < LINE_X) if y < 30 else (LINE_X < x <= 75):
+            return OBJECT + (1.0,)
+        return base(x, y)
+    return pixel
+
+
+def line_column(layer):
+    """The line's column if it is one column in every row, else None."""
+    columns = set()
+    for row in get(layer):
+        xs = [x for x, p in enumerate(row)
+              if all(abs(a - b) < 0.004 for a, b in zip(p[:3], LINE))]
+        if len(xs) != 1:
+            return None
+        columns.add(xs[0])
+    return columns.pop() if len(columns) == 1 else None
+
+
+@case
+def rigidity_layer_keeps_a_line_straight():
+    image, layer = new_image(100, 60, pixel=line_pixel())
+    ok(run(image, [layer], width=70))
+    check(line_column(layer) is None, 'the line stayed straight without a mask')
+    image.delete()
+
+    image, layer = new_image(100, 60, pixel=line_pixel())
+    rigid = new_layer(image, 'straight', 100, 60,
+                      pixel=band(columns=range(LINE_X - 4, LINE_X + 5)))
+    ok(run(image, [layer], width=70, rigidity_layer=rigid))
+    check(size(layer) == (70, 60), 'size %dx%d' % size(layer))
+    column = line_column(layer)
+    check(column is not None, 'the line is not straight under the mask')
+    # carved along, and still over the line
+    check(size(rigid) == (70, 60), 'mask size %dx%d' % size(rigid))
+    check(all(row[column][3] > 0.5 for row in get(rigid)),
+          'the carved mask left the line')
+    image.delete()
+
+
+@case
+def rigidity_layer_refused_when_it_does_not_fit():
+    image, layer = new_image(40, 30, pixel=noise(41))
+    other_image, other = new_image(40, 30, pixel=noise(42))
+    refused(run(image, [layer], width=30, rigidity_layer=other))
+    keep = new_layer(image, 'keep', 40, 30)
+    refused(run(image, [layer], width=30, keep_layer=keep, rigidity_layer=keep))
+    check(size(layer) == (40, 30), 'changed')
+    other_image.delete()
+    image.delete()
+
+
+# ------------------------------------------------------------- output
+
+def stored_keep(image, layer):
+    """A keep mask over OBJ, stored for layer as the dialog stores it."""
+    keep = new_layer(image, 'Keep (Liquid Rescale TNG)', layer.get_width(),
+                     layer.get_height(), pixel=band(columns=OBJ))
+    keep.set_visible(False)
+    keep.attach_parasite(Gimp.Parasite.new(
+        'gimp-lqr-tng-mask', Gimp.PARASITE_PERSISTENT,
+        list(b'keep %d' % layer.get_tattoo())))
+    return keep
+
+
+def parasite_of(layer):
+    parasite = layer.get_parasite('gimp-lqr-tng-mask')
+    return bytes(parasite.get_data()).decode() if parasite else None
+
+
+@case
+def output_layer_is_the_default():
+    image, layer = new_image(60, 40, pixel=noise(43))
+    status, result, result_image = run_full(image, [layer], width=40)
+    ok(status)
+    check(result == layer and result_image == image, 'the result is elsewhere')
+    check(len(image.get_layers()) == 1, '%d layers' % len(image.get_layers()))
+    image.delete()
+
+
+@case
+def output_new_layer():
+    image, layer = new_image(100, 30, pixel=noise(9, object_columns=OBJ))
+    keep = stored_keep(image, layer)
+    before = get_native(layer)
+    keep_before = get(keep)
+    images = len(Gimp.get_images())
+    status, result, result_image = run_full(image, [layer], width=60,
+                                            keep_layer=keep, output='new-layer')
+    ok(status)
+    check(result_image == image and result != layer, 'not a new layer')
+    check(len(Gimp.get_images()) == images, 'a new image was made')
+    # the layer is untouched, the new one above it is the result
+    check(size(layer) == (100, 30) and get_native(layer) == before,
+          'the layer changed')
+    layers = image.get_layers()
+    check(layers.index(result) < layers.index(layer), 'the new layer is not above')
+    check(result.get_name() == 'photo (carved)', 'name %r' % result.get_name())
+    check(size(result) == (60, 30), 'size %dx%d' % size(result))
+    check(object_count(result) == 300, 'object pixels %d' % object_count(result))
+    problem = rows_are_subsequences(before, get_native(result))
+    check(problem is None, problem)
+    # crop: the canvas fits the result; the layer stays whole beyond it
+    check(size(image) == (60, 30), 'canvas %dx%d' % size(image))
+    # the mask stays with the layer; a carved copy is the new layer's mask
+    check(size(keep) == (100, 30) and get(keep) == keep_before, 'the mask changed')
+    check(parasite_of(keep) == 'keep %d' % layer.get_tattoo(), 'the mask lost its layer')
+    copies = [l for l in image.get_layers()
+              if parasite_of(l) == 'keep %d' % result.get_tattoo()]
+    check(len(copies) == 1, '%d masks for the new layer' % len(copies))
+    check(size(copies[0]) == (60, 30), 'the mask copy is %dx%d' % size(copies[0]))
+    check(not copies[0].get_visible(), 'the mask copy is visible')
+    image.delete()
+
+
+@case
+def output_new_layer_without_carving_masks():
+    image, layer = new_image(100, 30, pixel=noise(9, object_columns=OBJ))
+    keep = stored_keep(image, layer)
+    status, result, _ = run_full(image, [layer], width=60, keep_layer=keep,
+                                 output='new-layer', carve_masks=False,
+                                 after='keep')
+    ok(status)
+    check(object_count(result) == 300, 'the mask was not used')
+    check(len(image.get_layers()) == 3, '%d layers' % len(image.get_layers()))
+    check(size(image) == (100, 30), 'keep: canvas %dx%d' % size(image))
+    image.delete()
+
+
+@case
+def output_new_image():
+    image, layer = new_image(100, 30, precision=U16,
+                             pixel=noise(9, object_columns=OBJ))
+    keep = stored_keep(image, layer)
+    mask = layer.create_mask(Gimp.AddMaskType.WHITE)
+    layer.add_mask(mask)
+    before = get_native(layer)
+    images = len(Gimp.get_images())
+    status, result, result_image = run_full(image, [layer], width=60,
+                                            keep_layer=keep, output='new-image')
+    ok(status)
+    check(result_image != image, 'not a new image')
+    check(len(Gimp.get_images()) == images + 1, 'no new image in GIMP')
+    # the image is untouched
+    check(size(image) == (100, 30) and size(layer) == (100, 30), 'the image changed')
+    check(get_native(layer) == before, 'the layer changed')
+    check(len(image.get_layers()) == 2, 'layers were added to the image')
+    check(size(keep) == (100, 30), 'the mask changed')
+    # the new image: the result's size, the same precision, the layer
+    # with its layer mask, and the carved mask for it
+    check(size(result_image) == (60, 30), 'new image %dx%d' % size(result_image))
+    check(result_image.get_precision() == U16, 'precision changed')
+    check(result.get_image() == result_image, 'the layer is not in the new image')
+    check(size(result) == (60, 30) and result.get_offsets()[1:] == (0, 0),
+          'layer %dx%d' % size(result))
+    check(object_count(result) == 300, 'object pixels %d' % object_count(result))
+    problem = rows_are_subsequences(before, get_native(result))
+    check(problem is None, problem)
+    check(result.get_mask() is not None and size(result.get_mask()) == (60, 30),
+          'the layer mask was not carved along')
+    names = [l.get_name() for l in result_image.get_layers()]
+    check(names == ['Keep (Liquid Rescale TNG)', 'photo'], 'layers %s' % names)
+    check(parasite_of(result_image.get_layers()[0]) ==
+          'keep %d' % result.get_tattoo(), 'the mask copy is not the new layer\'s')
+    check(not result_image.is_dirty(), 'the new image is dirty')
+    result_image.delete()
+    image.delete()
+
+
+@case
+def output_new_image_with_after():
+    # crop and restore: the result's size; keep: the layer's old size
+    for after, canvas, layer_size in [('crop', (40, 30), (40, 30)),
+                                      ('keep', (60, 40), (40, 30)),
+                                      ('restore', (60, 40), (60, 40)),
+                                      ('scale', (60, 40), (60, 40)),
+                                      ('scale-width', (60, 45), (60, 45))]:
+        image, layer = new_image(60, 40, pixel=noise(44))
+        status, result, result_image = run_full(image, [layer], width=40,
+                                                height=30, after=after,
+                                                output='new-image')
+        ok(status)
+        check(size(result_image) == canvas,
+              '%s: new image %dx%d' % ((after,) + size(result_image)))
+        check(size(result) == layer_size, '%s: layer %dx%d' % ((after,) + size(result)))
+        check(size(image) == (60, 40) and size(layer) == (60, 40),
+              '%s: the image changed' % after)
+        result_image.delete()
+        image.delete()
+    # a layer that does not cover the canvas: the new image is the layer's
+    image, layer = not_covering_image()
+    status, result, result_image = run_full(image, [layer], width=40,
+                                            output='new-image')
+    ok(status)
+    check(size(result_image) == (40, 40), 'new image %dx%d' % size(result_image))
+    check(layer.get_offsets()[1:] == (30, 20) and size(layer) == (60, 40),
+          'the layer changed')
+    result_image.delete()
+    image.delete()
+
+
+@case
+def output_new_layer_with_after():
+    for after, canvas, layer_size in [('keep', (60, 40), (40, 30)),
+                                      ('restore', (60, 40), (60, 40)),
+                                      ('scale-height', (53, 40), (53, 40))]:
+        image, layer = new_image(60, 40, pixel=noise(45))
+        status, result, _ = run_full(image, [layer], width=40, height=30,
+                                     after=after, output='new-layer')
+        ok(status)
+        check(size(image) == canvas, '%s: canvas %dx%d' % ((after,) + size(image)))
+        check(size(result) == layer_size, '%s: layer %dx%d' % ((after,) + size(result)))
+        check(size(layer) == (60, 40), '%s: the layer changed' % after)
+        image.delete()
+
+
+# ------------------------------------------------------------ scaling back
+
+@case
+def after_scale_modes():
+    # the sizes of the Liquid Rescale plug-in: width only keeps the
+    # proportions of the carved result, (int) (30 * 60 / 40) = 45 high
+    carved = {}
+    for after, final in [('scale', (60, 40)), ('scale-width', (60, 45)),
+                         ('scale-height', (53, 40)), ('restore', (60, 40))]:
+        image, layer = new_image(60, 40, pixel=noise(46))
+        keep = new_layer(image, 'keep', 60, 40, pixel=band(columns=range(5, 10)))
+        ok(run(image, [layer], width=40, height=30, after=after, keep_layer=keep))
+        check(size(layer) == final, '%s: size %dx%d' % ((after,) + size(layer)))
+        check(size(image) == final, '%s: canvas %dx%d' % ((after,) + size(image)))
+        check(size(keep) == final, '%s: mask %dx%d' % ((after,) + size(keep)))
+        check(layer.get_offsets()[1:] == (0, 0), '%s: moved' % after)
+        carved[after] = get_native(layer)
+        image.delete()
+    check(carved['scale'] != carved['restore'],
+          'scaling back gave what carving back gives')
+
+
+@case
+def after_scale_not_covering_the_canvas():
+    image, layer = not_covering_image()
+    ok(run(image, [layer], width=40, height=30, after='scale-width'))
+    check(size(layer) == (60, 45), 'size %dx%d' % size(layer))
+    check(layer.get_offsets()[1:] == (30, 20), 'offsets %s' % (layer.get_offsets()[1:],))
+    check(size(image) == (200, 100), 'canvas %dx%d' % size(image))
+    image.delete()
+
+
+# ------------------------------------------------------------- the seams
+
+def seam_layers(image):
+    return [l for l in image.get_layers() if ' seams (' in l.get_name()]
+
+
+def painted_per_row(layer):
+    return [sum(1 for p in row if p[3] > 0) for row in get(layer)]
+
+
+@case
+def seams_drawn():
+    image, layer = new_image(60, 30, pixel=noise(47))
+    ok(run(image, [layer], width=45, output_seams=True, after='keep'))
+    seams = seam_layers(image)
+    check([l.get_name() for l in seams] == ['photo seams (width)'],
+          'seam layers %s' % [l.get_name() for l in seams])
+    check(size(seams[0]) == (60, 30), 'seams %dx%d' % size(seams[0]))
+    counts = painted_per_row(seams[0])
+    check(all(c == 15 for c in counts), 'seams per row %s' % counts)
+    # as the Liquid Rescale plug-in colours them: a seam that went at v
+    # (1 first, near 0 last) is v of the first colour (yellow, by default)
+    # and 1 - v of the last (0.2, 0, 0), with alpha (1 + v) / 2
+    pix = [p for row in get(seams[0]) for p in row if p[3] > 0]
+    vs = []
+    for r, g, b, a in pix:
+        v = 2 * a - 1
+        expected = (v * 1 + (1 - v) * 0.2, v, 0.0)
+        check(all(abs(c - e) < 0.02 for c, e in zip((r, g, b), expected)),
+              'seam colour %s at v %.3f' % ((r, g, b, a), v))
+        vs.append(v)
+    check(max(vs) > 0.9 and min(vs) < 0.2,
+          'the seams go from %.2f to %.2f' % (min(vs), max(vs)))
+    image.delete()
+
+
+@case
+def seams_of_both_passes():
+    image, layer = not_covering_image()
+    ok(run(image, [layer], width=50, height=32, output_seams=True,
+           seams_color_start=Gegl.Color.new('white')))
+    seams = seam_layers(image)
+    names = [l.get_name() for l in seams]
+    check(sorted(names) == ['photo seams (height)', 'photo seams (width)'],
+          'seam layers %s' % names)
+    for l in seams:
+        check(l.get_offsets()[1:] == (30, 20), 'offsets %s' % (l.get_offsets()[1:],))
+        if l.get_name().endswith('(width)'):
+            check(size(l) == (60, 40), 'width seams %dx%d' % size(l))
+            check(all(c == 10 for c in painted_per_row(l)), 'width seams per row')
+        else:
+            # over the carved width, 8 in each column
+            check(size(l) == (50, 40), 'height seams %dx%d' % size(l))
+            columns = list(zip(*get(l)))
+            check(all(sum(1 for p in col if p[3] > 0) == 8 for col in columns),
+                  'height seams per column')
+    image.delete()
+
+
+@case
+def seams_in_a_gray_image():
+    image, layer = new_image(40, 20, Gimp.ImageBaseType.GRAY, pixel=noise(48))
+    ok(run(image, [layer], width=30, output_seams=True))
+    check(image.get_base_type() == Gimp.ImageBaseType.GRAY, 'converted to RGB')
+    seams = seam_layers(image)
+    check(len(seams) == 1 and all(c == 10 for c in painted_per_row(seams[0])),
+          'gray seams')
+    image.delete()
+
+
+@case
+def seams_with_a_new_image():
+    image, layer = new_image(60, 30, pixel=noise(49))
+    status, result, result_image = run_full(image, [layer], width=45,
+                                            output_seams=True, output='new-image')
+    ok(status)
+    check(len(seam_layers(image)) == 0, 'seams in the old image')
+    check(len(seam_layers(result_image)) == 1, 'no seams in the new image')
+    result_image.delete()
     image.delete()
 
 

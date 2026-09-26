@@ -67,7 +67,53 @@ typedef struct
                              * liblqr's bias of a fully painted pixel */
   gboolean   restore_size;  /* then carve back to the original size: the
                              * painted "remove" parts stay removed */
+  gboolean   seams;         /* also the maps of the seams, see CarveResult */
 } CarveOptions;
+
+/* Under a rigidity mask, liblqr multiplies the rigidity by the mask's
+ * value, and gives the pixels without a value none. Here, as in the
+ * Liquid Rescale plug-in, a fully painted pixel gets 3 times the rigidity,
+ * and at least 3 times CARVE_STRAIGHT_RIGIDITY, so that painting works
+ * with the rigidity setting at 0; unpainted pixels keep the rigidity
+ * setting. */
+#define CARVE_STRAIGHT_RIGIDITY 20.0
+
+/* what is carved: the masks (of the size of the image, 1 channel, 0 to 1
+ * per pixel, any may be NULL) and other images carved along the same
+ * seams (such as a layer mask, of any number of channels, of the size of
+ * the image) */
+typedef struct
+{
+  const CarveImage *keep;         /* the seams go around it */
+  const CarveImage *remove;       /* the seams go through it first */
+  const CarveImage *rigid;        /* the seams bend less there */
+  gboolean          masks_along;  /* also carve the masks, into the result */
+  const CarveImage *extras;
+  gint              n_extras;
+} CarveInput;
+
+/* one pass of seams over one side: a map of the size of the image when
+ * the pass began, 0 where no seam went, and for the pixels a seam took (or
+ * doubled, when enlarging) how early: 1 for the first seam, down to
+ * 1 / (n + 1) for the last of n */
+typedef struct
+{
+  CarveImage map;
+  gboolean   height;              /* a pass over the height (the seams run
+                                   * across), else over the width */
+} CarveSeams;
+
+typedef struct
+{
+  CarveImage  image;
+  CarveImage  keep;               /* with masks_along, for each mask given */
+  CarveImage  remove;
+  CarveImage  rigid;
+  CarveImage *extras;             /* those of the input */
+  gint        n_extras;
+  CarveSeams *seams;              /* with options->seams, in carving order */
+  gint        n_seams;
+} CarveResult;
 
 /* a carving that another thread can cancel; one per carve () call at a
  * time */
@@ -100,22 +146,17 @@ gboolean   carve                  (const CarveImage   *image,
                                    CarveImage         *remove_result,
                                    GError            **error);
 
-/* The same, also carving n_extras more images (such as a layer mask, of
- * any number of channels, of the size of image) along the same seams, into
- * extra_results. */
+/* The same, with everything: input->extras are carved into
+ * result->extras. On success, free result with carve_result_clear (). */
 gboolean   carve_full             (const CarveImage   *image,
-                                   const CarveImage   *keep,
-                                   const CarveImage   *remove,
+                                   const CarveInput   *input,
                                    const CarveOptions *options,
                                    LqrProgress        *progress,
                                    CarveJob           *job,
-                                   CarveImage         *result,
-                                   CarveImage         *keep_result,
-                                   CarveImage         *remove_result,
-                                   const CarveImage   *extras,
-                                   gint                n_extras,
-                                   CarveImage         *extra_results,
+                                   CarveResult        *result,
                                    GError            **error);
+
+void       carve_result_clear     (CarveResult        *result);
 
 /* How many pixels the width (or the height) must shrink by so that seams
  * can take every painted "remove" pixel away: the most remove pixels in

@@ -1,0 +1,16 @@
+Free the nodes of a seam map list when destroying it
+
+lqr_vmap_list_destroy () destroyed the seam maps of the list but not the
+list nodes, 16 bytes per map dumped with lqr_carver_set_dump_vmaps ()
+(LeakSanitizer).
+
+--- a/lqr/lqr_vmap_list.c
++++ b/lqr/lqr_vmap_list.c
+@@ -61,6 +61,7 @@ lqr_vmap_list_destroy(LqrVMapList *list)
+     if (now != NULL) {
+         lqr_vmap_list_destroy(now->next);
+         lqr_vmap_destroy(now->current);
++        g_free(now);
+     }
+ }
+ 
