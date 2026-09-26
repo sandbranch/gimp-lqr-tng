@@ -7,6 +7,8 @@ remove.
 Layer > Liquid Rescale Paint... opens a window with the layer on the left
 and the result, as it will be, on the right:
 
+![The dialog, with the red post painted to remove](docs/dialog-remove.png)
+
 - **Keep** (green): paint what must keep its shape, such as people and
   faces. The seams go around it.
 - **Remove** (red): paint what should go. The seams go through it first.
