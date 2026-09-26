@@ -52,7 +52,7 @@ status=0
 pass () { echo "LQRP GUI PASS $1"; }
 fail () { echo "LQRP GUI FAIL $1"; status=1; }
 
-# the dialog: a window of about 1100 x 900 on the page (Broadway draws each
+# the dialog: a window of about 1100 x 880 on the page (Broadway draws each
 # window as a canvas; GIMP's own window is as large but off the page); the
 # positions below are from its top left corner
 # the page size is set in each call: Chrome forgets it when cdp.mjs ends
@@ -87,8 +87,8 @@ $cdp $view shot:"$out/01-open.png" >/dev/null
 $cdp $view click:"$(p 166 100)" wait:300 \
      down:"$(p 403 272)" move:"$(p 403 300)" move:"$(p 403 330)" \
      move:"$(p 403 360)" move:"$(p 403 384)" up:"$(p 403 384)" wait:800 \
-     click:"$(p 665 611)" wait:2500 shot:"$out/02-remove.png" >/dev/null
-$cdp $view click:"$(p 1007 834)" >/dev/null
+     click:"$(p 665 591)" wait:2500 shot:"$out/02-remove.png" >/dev/null
+$cdp $view click:"$(p 1007 814)" >/dev/null
 
 i=0
 while [ ! -f "$out/result.png" ] && [ $i -lt 60 ]; do

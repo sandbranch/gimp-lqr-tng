@@ -610,11 +610,12 @@ lqr_paint_dialog (GimpProcedure       *procedure,
                   Masks              **masks_out,
                   gboolean            *changed)
 {
-  Dialog     d = { 0 };
-  GtkWidget *dialog, *content, *columns, *left, *right, *tools, *button;
-  GtkWidget *keep, *box, *grid, *expander, *fine, *show, *label;
-  gint       view_w, view_h, max;
-  gboolean   run;
+  Dialog        d = { 0 };
+  GtkWidget    *dialog, *content, *columns, *left, *right, *tools, *button;
+  GtkWidget    *keep, *box, *grid, *expander, *fine, *show, *label;
+  GtkSizeGroup *tools_height;
+  gint          view_w, view_h, max;
+  gboolean      run;
 
   d.config       = config;
   d.image        = image;
@@ -710,13 +711,21 @@ lqr_paint_dialog (GimpProcedure       *procedure,
   g_signal_connect (show, "toggled", G_CALLBACK (on_show_masks), &d);
   gtk_box_pack_start (GTK_BOX (box), show, FALSE, FALSE, 0);
 
-  /* right: the result, and the settings */
+  /* right: the result, and the settings; the result starts as far down
+   * as the layer, beside it */
   right = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
   gtk_box_pack_start (GTK_BOX (columns), right, TRUE, TRUE, 0);
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_box_pack_start (GTK_BOX (right), box, FALSE, FALSE, 0);
+  tools_height = gtk_size_group_new (GTK_SIZE_GROUP_VERTICAL);
+  gtk_size_group_add_widget (tools_height, tools);
+  gtk_size_group_add_widget (tools_height, box);
+  g_object_unref (tools_height);
 
   box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  /* as large as the layer on the left: a larger result is shown smaller */
   d.result_area = gtk_drawing_area_new ();
-  gtk_widget_set_size_request (d.result_area, VIEW_WIDTH, VIEW_HEIGHT);
+  gtk_widget_set_size_request (d.result_area, view_w, view_h);
   g_signal_connect (d.result_area, "draw", G_CALLBACK (on_result_draw), &d);
   gtk_box_pack_start (GTK_BOX (box), d.result_area, FALSE, FALSE, 0);
   label = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
