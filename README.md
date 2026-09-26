@@ -70,6 +70,7 @@ GIMP profile.
 
     tests/gui/gui-test.sh        the dialog as a user would use it
     tests/gui/start.sh [photo]   the dialog to try by hand
+    tests/gui/look.sh <name> [step...]   a screenshot after some steps
 
 `gui-test.sh` opens the dialog on a Broadway display (GTK in a web page)
 and drives it from a headless Chrome with
@@ -77,6 +78,11 @@ and drives it from a headless Chrome with
 `gui/cdp.mjs`: it paints a red post with Remove, presses Size to remove the
 red and Rescale, and checks that the post is gone, the tree whole, and the
 mask layer stored. Screenshots of each step are left in `tests/output/gui/`.
+`look.sh` opens the dialog the same way, does the steps given (clicks at
+positions in the dialog, keys, text) and leaves a screenshot there, for
+looking at the layout; `LQRP_SCENE=300x500` makes the generated scene
+another size, such as a portrait one. Only the GIMP these scripts start
+is stopped at the end, not other runs of the Flatpak.
 
 ## License
 

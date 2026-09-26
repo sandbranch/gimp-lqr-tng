@@ -14,74 +14,21 @@
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
 here=$(cd "$(dirname "$0")" && pwd)
-tests=$(dirname "$here")
-src=$(dirname "$tests")
-out=$tests/output/gui
-devtools=${GIMP_PLUGIN_DEVTOOLS:-$src/../gimp-plugin-devtools}
-cdp="node $devtools/gui/cdp.mjs"
-
-chrome=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
-[ -n "$chrome" ] || { echo "LQRP GUI SKIP: no Chrome or Chromium"; exit 0; }
-
-rm -rf "$out"
-mkdir -p "$out"
-CDP_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
-export CDP_PORT
-
-instances () { flatpak ps --columns=instance,application 2>/dev/null |
-               awk '$2 == "org.gimp.GIMP" { print $1 }' | sort; }
-before=$(instances)
-chrome_pid=
-cleanup () {
-    [ -n "$chrome_pid" ] && kill "$chrome_pid" 2>/dev/null
-    # GIMP quits by itself after Rescale; after a failure the Flatpak
-    # instance this test started is stopped, not one that was running
-    for instance in $(instances); do
-        echo "$before" | grep -qx "$instance" || flatpak kill "$instance" 2>/dev/null
-    done
-}
-trap cleanup EXIT
-
-"$here/start.sh" >"$out/gimp.log" 2>&1 &
-"$chrome" --headless=new --remote-debugging-port="$CDP_PORT" \
-  --user-data-dir="$out/chrome" --password-store=basic about:blank \
-  >/dev/null 2>&1 &
-chrome_pid=$!
-
+rm -rf "$here/../output/gui"
+photo=
 status=0
 pass () { echo "LQRP GUI PASS $1"; }
 fail () { echo "LQRP GUI FAIL $1"; status=1; }
 
-# the dialog: a window of about 1100 x 880 on the page (Broadway draws each
-# window as a canvas; GIMP's own window is as large but off the page); the
-# positions below are from its top left corner
-# the page size is set in each call: Chrome forgets it when cdp.mjs ends
-view=size:1400,1000
-find_dialog () {
-    $cdp $view nav:http://127.0.0.1:8085/ wait:4000 \
-      "eval:(() => { const c = [...document.querySelectorAll('canvas')]
-        .map(e => e.getBoundingClientRect())
-        .find(r => r.left >= 0 && r.top >= 0 && r.width > 1000 &&
-                   r.width < 1300 && r.height > 700);
-        return c ? Math.round(c.left) + ',' + Math.round(c.top) : '' })()" 2>/dev/null
-}
-at=
-i=0
-while [ $i -lt 30 ]; do
-    at=$(find_dialog)
-    [ -n "$at" ] && break
-    i=$((i + 1))
-    sleep 3
-done
+. "$here/common.sh"
+
 if [ -z "$at" ]; then
     fail "the dialog did not open (log: $out/gimp.log)"
     exit 1
 fi
 pass "the dialog opened"
-x0=${at%,*}
-y0=${at#*,}
-p () { echo "$(( x0 + $1 )),$(( y0 + $2 ))"; }
 
+# the positions are from the dialog's top left corner
 $cdp $view shot:"$out/01-open.png" >/dev/null
 # Remove, then a stroke down the post, then Size to remove the red
 $cdp $view click:"$(p 166 100)" wait:300 \

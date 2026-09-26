@@ -1,6 +1,6 @@
 # Runs inside GIMP on a Broadway display (tests/gui/start.sh): opens a
-# photo (LQRP_PHOTO) or a generated scene, and the Liquid Rescale Paint
-# dialog. After Rescale it saves the result and the mask layers in
+# photo (LQRP_PHOTO) or a generated scene (of the size LQRP_SCENE), and
+# the Liquid Rescale Paint dialog. After Rescale it saves the result and the mask layers in
 # LQRP_OUT, writes the result's size to LQRP_OUT/result.txt, and quits.
 #
 # Copyright 2026 David
@@ -20,15 +20,17 @@ if photo:
     image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(photo))
     layer = image.get_layers()[0]
 else:
-    # a sky, a ground, a green tree to keep and a red post to remove
-    W, H = 480, 300
+    # a sky, a ground, a green tree to keep and a red post to remove, laid
+    # out on 480 x 300 and stretched to LQRP_SCENE (e.g. 300x500)
+    W, H = (int(v) for v in os.environ.get('LQRP_SCENE', '480x300').split('x'))
     image = Gimp.Image.new(W, H, Gimp.ImageBaseType.RGB)
     layer = Gimp.Layer.new(image, 'scene', W, H, Gimp.ImageType.RGB_IMAGE, 100,
                            Gimp.LayerMode.NORMAL)
     image.insert_layer(layer, None, 0)
     data = bytearray()
-    for y in range(H):
-        for x in range(W):
+    for Y in range(H):
+        for X in range(W):
+            x, y = X * 480 // W, Y * 300 // H
             if 110 <= x < 150 and 90 <= y < 240:
                 p = (0.1, 0.55, 0.15) if y < 200 else (0.35, 0.2, 0.1)
             elif 330 <= x < 345 and 120 <= y < 240:
