@@ -137,37 +137,52 @@ on_result_draw (GtkWidget *widget,
 {
   gint    w = gtk_widget_get_allocated_width (widget);
   gint    h = gtk_widget_get_allocated_height (widget);
-  gdouble scale, rw, rh, x, y;
+  gdouble scale, rw, rh, bw, bh, x, y;
   gint    cx, cy;
 
   if (!d->result)
     return TRUE;
 
-  /* the result at the scale of the layer on the left, or smaller to fit */
+  /* the result at the scale of the layer on the left; the box around it
+   * is the result, or, when the image keeps its size, at least the
+   * layer's old size, with the empty strip showing; smaller to fit */
   scale = d->view_scale / d->carve_scale;
   rw = cairo_image_surface_get_width (d->result) * scale;
   rh = cairo_image_surface_get_height (d->result) * scale;
-  if (rw > w || rh > h)
+  bw = rw;
+  bh = rh;
+  if (gimp_procedure_config_get_choice_id (d->config, "after") ==
+      LQR_PAINT_AFTER_KEEP)
     {
-      gdouble fit = MIN (w / rw, h / rh);
+      bw = MAX (bw, d->preview.width * scale);
+      bh = MAX (bh, d->preview.height * scale);
+    }
+  if (bw > w || bh > h)
+    {
+      gdouble fit = MIN (w / bw, h / bh);
 
       scale *= fit;
       rw *= fit;
       rh *= fit;
+      bw *= fit;
+      bh *= fit;
     }
-  x = floor ((w - rw) / 2);
-  y = floor ((h - rh) / 2);
+  x = floor ((w - bw) / 2);
+  y = floor ((h - bh) / 2);
 
   cairo_save (cr);
-  cairo_rectangle (cr, x, y, ceil (rw), ceil (rh));
+  cairo_rectangle (cr, x, y, ceil (bw), ceil (bh));
   cairo_clip (cr);
   cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
   cairo_paint (cr);
   cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
-  for (cy = 0; cy < rh; cy += 8)
-    for (cx = (cy / 8) % 2 * 8; cx < rw; cx += 16)
+  for (cy = 0; cy < bh; cy += 8)
+    for (cx = (cy / 8) % 2 * 8; cx < bw; cx += 16)
       cairo_rectangle (cr, x + cx, y + cy, 8, 8);
   cairo_fill (cr);
+  /* the layer stays at the top left of the canvas */
+  cairo_rectangle (cr, x, y, ceil (rw), ceil (rh));
+  cairo_clip (cr);
   cairo_translate (cr, x, y);
   cairo_scale (cr, scale, scale);
   cairo_set_source_surface (cr, d->result, 0, 0);
@@ -217,6 +232,16 @@ update_result_label (Dialog *d)
                               "\303\227 %d, then carved back)"),
                             d->layer_width, d->layer_height,
                             options.width, options.height);
+  else if ((options.width != d->layer_width ||
+            options.height != d->layer_height) &&
+           (gimp_procedure_config_get_choice_id (d->config, "after") !=
+            LQR_PAINT_AFTER_CROP ||
+            !lqr_paint_covers_canvas (d->image, d->layer)))
+    text = g_strdup_printf (_("Result: %d \303\227 %d pixels (the image "
+                              "stays %d \303\227 %d)"),
+                            options.width, options.height,
+                            gimp_image_get_width (d->image),
+                            gimp_image_get_height (d->image));
   else
     text = g_strdup_printf (_("Result: %d \303\227 %d pixels"),
                             options.width, options.height);
@@ -368,7 +393,7 @@ on_config_changed (GObject    *config,
       return;
     }
   if (strcmp (name, "keep-layer") == 0 || strcmp (name, "remove-layer") == 0 ||
-      strcmp (name, "carve-masks") == 0 || strcmp (name, "resize-canvas") == 0)
+      strcmp (name, "carve-masks") == 0)
     return;
 
   /* 0 (as after Reset) is the layer's size */
@@ -724,8 +749,8 @@ lqr_paint_dialog (GimpProcedure       *procedure,
   gtk_box_pack_start (GTK_BOX (box), button, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (box),
                       gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "restore-size",
-                                                        GTK_TYPE_CHECK_BUTTON),
+                                                        "after",
+                                                        GIMP_TYPE_INT_RADIO_FRAME),
                       FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (right), frame (_("Size"), box), FALSE, FALSE, 0);
 
@@ -753,11 +778,6 @@ lqr_paint_dialog (GimpProcedure       *procedure,
   gtk_box_pack_start (GTK_BOX (fine),
                       gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
                                                         "order", G_TYPE_NONE),
-                      FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (fine),
-                      gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),
-                                                        "resize-canvas",
-                                                        GTK_TYPE_CHECK_BUTTON),
                       FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (fine),
                       gimp_procedure_dialog_get_widget (GIMP_PROCEDURE_DIALOG (dialog),

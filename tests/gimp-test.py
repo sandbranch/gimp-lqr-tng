@@ -202,10 +202,12 @@ def rows_are_subsequences(before, after, exact=True, tol=1e-4):
 def registered():
     check(PROC is not None, 'plug-in-lqr-paint is not registered')
     names = [a.get_name() for a in PROC.get_arguments()]
-    for name in ['width', 'height', 'keep-layer', 'remove-layer',
-                 'restore-size', 'rigidity', 'mask-strength', 'energy',
-                 'max-enlarge', 'order', 'resize-canvas', 'carve-masks']:
+    for name in ['width', 'height', 'keep-layer', 'remove-layer', 'after',
+                 'rigidity', 'mask-strength', 'energy', 'max-enlarge', 'order',
+                 'carve-masks']:
         check(name in names, 'no argument %s' % name)
+    for name in ['restore-size', 'resize-canvas']:
+        check(name not in names, 'the old argument %s is still there' % name)
     check(PROC.get_menu_label() and 'Paint' in PROC.get_menu_label(),
           'menu label %r' % PROC.get_menu_label())
 
@@ -389,10 +391,10 @@ def remove_mask_layer():
 
 
 @case
-def remove_and_restore_size():
+def remove_and_restore():
     image, layer = new_image(100, 30, pixel=noise(12, object_columns=range(40, 50)))
     remove = new_layer(image, 'remove', 100, 30, pixel=band(columns=range(40, 50)))
-    ok(run(image, [layer], width=90, remove_layer=remove, restore_size=True))
+    ok(run(image, [layer], width=90, remove_layer=remove, after='restore'))
     check(size(layer) == (100, 30), 'size %dx%d' % size(layer))
     check(size(image) == (100, 30), 'canvas %dx%d' % size(image))
     check(object_count(layer) == 0, '%d object pixels left' % object_count(layer))
@@ -442,25 +444,70 @@ def layer_mask_carved_along():
     image.delete()
 
 
-@case
-def layer_not_covering_the_canvas():
+def not_covering_image():
+    """A 200 x 100 image with a background, and a noise layer of 60 x 40 at
+    (30, 20) over it."""
     image = Gimp.Image.new(200, 100, Gimp.ImageBaseType.RGB)
     bg = Gimp.Layer.new(image, 'bg', 200, 100, Gimp.ImageType.RGB_IMAGE, 100,
                         Gimp.LayerMode.NORMAL)
     image.insert_layer(bg, None, 0)
     layer = new_layer(image, 'photo', 60, 40, x=30, y=20, pixel=noise(15))
-    ok(run(image, [layer], width=40))
-    check(size(image) == (200, 100), 'canvas %dx%d' % size(image))
-    check(size(layer) == (40, 40), 'size %dx%d' % size(layer))
-    check(layer.get_offsets()[1:] == (30, 20), 'offsets %s' % (layer.get_offsets()[1:],))
+    return image, layer
+
+
+@case
+def layer_not_covering_the_canvas():
+    # never resizes the canvas, whatever comes after
+    for after in ['crop', 'keep']:
+        image, layer = not_covering_image()
+        ok(run(image, [layer], width=40, after=after))
+        check(size(image) == (200, 100), '%s: canvas %dx%d' % ((after,) + size(image)))
+        check(size(layer) == (40, 40), '%s: size %dx%d' % ((after,) + size(layer)))
+        check(layer.get_offsets()[1:] == (30, 20),
+              '%s: offsets %s' % (after, layer.get_offsets()[1:]))
+        image.delete()
+    image, layer = not_covering_image()
+    ok(run(image, [layer], width=40, after='restore'))
+    check(size(image) == (200, 100), 'restore: canvas %dx%d' % size(image))
+    check(size(layer) == (60, 40), 'restore: size %dx%d' % size(layer))
     image.delete()
 
 
 @case
-def resize_canvas_off():
+def after_crop_is_the_default():
+    check(PROC.create_config().get_property('after') == 'crop',
+          'default %r' % PROC.create_config().get_property('after'))
     image, layer = new_image(60, 40, pixel=noise(16))
-    ok(run(image, [layer], width=40, resize_canvas=False))
+    ok(run(image, [layer], width=40, after='crop'))
     check(size(layer) == (40, 40), 'size %dx%d' % size(layer))
+    check(size(image) == (40, 40), 'canvas %dx%d' % size(image))
+    image.delete()
+
+
+@case
+def after_keep_leaves_the_canvas():
+    image, layer = new_image(60, 40, pixel=noise(16))
+    ok(run(image, [layer], width=40, after='keep'))
+    check(size(layer) == (40, 40), 'size %dx%d' % size(layer))
+    check(size(image) == (60, 40), 'canvas %dx%d' % size(image))
+    check(layer.get_offsets()[1:] == (0, 0), 'offsets %s' % (layer.get_offsets()[1:],))
+    image.delete()
+
+
+@case
+def after_keep_when_enlarging():
+    image, layer = new_image(40, 30, pixel=noise(18))
+    ok(run(image, [layer], width=60, after='keep'))
+    check(size(layer) == (60, 30), 'size %dx%d' % size(layer))
+    check(size(image) == (40, 30), 'canvas %dx%d' % size(image))
+    image.delete()
+
+
+@case
+def after_restore_without_a_mask():
+    image, layer = new_image(60, 40, pixel=noise(16))
+    ok(run(image, [layer], width=40, height=30, after='restore'))
+    check(size(layer) == (60, 40), 'size %dx%d' % size(layer))
     check(size(image) == (60, 40), 'canvas %dx%d' % size(image))
     image.delete()
 

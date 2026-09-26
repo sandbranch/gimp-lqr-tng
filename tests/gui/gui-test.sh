@@ -52,11 +52,13 @@ status=0
 pass () { echo "LQRP GUI PASS $1"; }
 fail () { echo "LQRP GUI FAIL $1"; status=1; }
 
-# the dialog: a window of about 1100 x 840 on the page (Broadway draws each
+# the dialog: a window of about 1100 x 900 on the page (Broadway draws each
 # window as a canvas; GIMP's own window is as large but off the page); the
 # positions below are from its top left corner
+# the page size is set in each call: Chrome forgets it when cdp.mjs ends
+view=size:1400,1000
 find_dialog () {
-    $cdp size:1400,900 nav:http://127.0.0.1:8085/ wait:4000 \
+    $cdp $view nav:http://127.0.0.1:8085/ wait:4000 \
       "eval:(() => { const c = [...document.querySelectorAll('canvas')]
         .map(e => e.getBoundingClientRect())
         .find(r => r.left >= 0 && r.top >= 0 && r.width > 1000 &&
@@ -80,13 +82,13 @@ x0=${at%,*}
 y0=${at#*,}
 p () { echo "$(( x0 + $1 )),$(( y0 + $2 ))"; }
 
-$cdp shot:"$out/01-open.png" >/dev/null
+$cdp $view shot:"$out/01-open.png" >/dev/null
 # Remove, then a stroke down the post, then Size to remove the red
-$cdp click:"$(p 166 100)" wait:300 \
+$cdp $view click:"$(p 166 100)" wait:300 \
      down:"$(p 403 272)" move:"$(p 403 300)" move:"$(p 403 330)" \
      move:"$(p 403 360)" move:"$(p 403 384)" up:"$(p 403 384)" wait:800 \
      click:"$(p 665 611)" wait:2500 shot:"$out/02-remove.png" >/dev/null
-$cdp click:"$(p 1007 766)" >/dev/null
+$cdp $view click:"$(p 1007 834)" >/dev/null
 
 i=0
 while [ ! -f "$out/result.png" ] && [ $i -lt 60 ]; do

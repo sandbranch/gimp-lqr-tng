@@ -28,12 +28,27 @@ G_BEGIN_DECLS
 #define PLUG_IN_PROC   "plug-in-lqr-paint"
 #define PLUG_IN_BINARY "gimp-lqr-paint"
 
+/* what happens after carving to the new size: the ids of the "after"
+ * argument */
+typedef enum
+{
+  LQR_PAINT_AFTER_CROP,     /* the canvas fits the layer, when the layer
+                             * covered all of it */
+  LQR_PAINT_AFTER_KEEP,     /* the canvas keeps its size */
+  LQR_PAINT_AFTER_RESTORE   /* carved back to the original size */
+} LqrPaintAfter;
+
 /* the carving settings of config, for a layer of the given size (a width
  * or height of 0 in config keeps the layer's) */
 void lqr_paint_options_from_config (GimpProcedureConfig *config,
                                     CarveOptions        *options,
                                     gint                 layer_width,
                                     gint                 layer_height);
+
+/* whether carving layer to its new size and cropping the image to it
+ * would change the canvas: the layer covers all of the canvas */
+gboolean lqr_paint_covers_canvas   (GimpImage           *image,
+                                    GimpLayer           *layer);
 
 /* whether mask can be a mask for layer: another layer (not a group) of
  * the same image */

@@ -125,12 +125,27 @@ lqr_paint_create_procedure (GimpPlugIn  *plug_in,
   gimp_procedure_add_layer_argument (procedure, "remove-layer", _("Remove mask"),
                                      _("A layer whose painted pixels are removed"),
                                      TRUE, G_PARAM_READWRITE);
-  gimp_procedure_add_boolean_argument (procedure, "restore-size",
-                                       _("Restore the original si_ze"),
-                                       _("After carving to the new size, carve "
-                                         "back to the original size: the parts "
-                                         "painted to remove stay removed"),
-                                       FALSE, G_PARAM_READWRITE);
+  gimp_procedure_add_choice_argument (procedure, "after", _("After carving"),
+                                      _("What happens after carving to the "
+                                        "new size"),
+                                      gimp_choice_new_with_values (
+                                        "crop", LQR_PAINT_AFTER_CROP,
+                                        _("Crop the image to the result"),
+                                        _("Fit the canvas to the layer's new "
+                                          "size, when the layer covered all "
+                                          "of the canvas"),
+                                        "keep", LQR_PAINT_AFTER_KEEP,
+                                        _("Keep the image size (leave an "
+                                          "empty strip)"),
+                                        _("The canvas keeps its size: where "
+                                          "the layer shrank, it is empty"),
+                                        "restore", LQR_PAINT_AFTER_RESTORE,
+                                        _("Carve back to the original size"),
+                                        _("Then carve back to the original "
+                                          "size: the parts painted to remove "
+                                          "stay removed"),
+                                        NULL),
+                                      "crop", G_PARAM_READWRITE);
   gimp_procedure_add_double_argument (procedure, "rigidity", _("Ri_gidity"),
                                       _("How much the paths of pixels avoid "
                                         "bending: higher keeps straight lines "
@@ -177,12 +192,6 @@ lqr_paint_create_procedure (GimpPlugIn  *plug_in,
                                         _("Height first"), NULL,
                                         NULL),
                                       "width-first", G_PARAM_READWRITE);
-  gimp_procedure_add_boolean_argument (procedure, "resize-canvas",
-                                       _("Resize the _canvas"),
-                                       _("Fit the canvas to the layer's new "
-                                         "size, when the layer covered all of "
-                                         "the canvas"),
-                                       TRUE, G_PARAM_READWRITE);
   gimp_procedure_add_boolean_argument (procedure, "carve-masks",
                                        _("C_arve the masks along"),
                                        _("Carve the mask layers with the same "
@@ -279,12 +288,27 @@ lqr_paint_options_from_config (GimpProcedureConfig *config,
                 "rigidity", &options->rigidity,
                 "mask-strength", &options->strength,
                 "max-enlarge", &options->max_enlarge,
-                "restore-size", &options->restore_size,
                 NULL);
   options->width  = width > 0 ? width : layer_width;
   options->height = height > 0 ? height : layer_height;
   options->energy = gimp_procedure_config_get_choice_id (config, "energy");
   options->order  = gimp_procedure_config_get_choice_id (config, "order");
+  options->restore_size = (gimp_procedure_config_get_choice_id (config, "after")
+                           == LQR_PAINT_AFTER_RESTORE);
+}
+
+gboolean
+lqr_paint_covers_canvas (GimpImage *image,
+                         GimpLayer *layer)
+{
+  gint x, y;
+
+  gimp_drawable_get_offsets (GIMP_DRAWABLE (layer), &x, &y);
+  return x == 0 && y == 0 &&
+         gimp_drawable_get_width (GIMP_DRAWABLE (layer)) ==
+         gimp_image_get_width (image) &&
+         gimp_drawable_get_height (GIMP_DRAWABLE (layer)) ==
+         gimp_image_get_height (image);
 }
 
 /* a mask layer argument: in this image, and not the layer itself */
@@ -313,7 +337,7 @@ lqr_paint_apply (GimpImage            *image,
   gint           extra_of[3];
   gint           n_extras = 0, i, k;
   CarveOptions   options;
-  gboolean       carve_masks, resize_canvas, covered;
+  gboolean       carve_masks, crop;
   GimpChannel   *selection = NULL;
   const Babl    *format = layer_io_format (drawable);
   const Babl    *mask_format = NULL;
@@ -326,7 +350,6 @@ lqr_paint_apply (GimpImage            *image,
                 "keep-layer", &masks[MASK_KEEP],
                 "remove-layer", &masks[MASK_REMOVE],
                 "carve-masks", &carve_masks,
-                "resize-canvas", &resize_canvas,
                 NULL);
   lqr_paint_options_from_config (config, &options, width, height);
 
@@ -350,8 +373,9 @@ lqr_paint_apply (GimpImage            *image,
     }
 
   gimp_drawable_get_offsets (drawable, &x, &y);
-  covered = x == 0 && y == 0 && width == gimp_image_get_width (image) &&
-            height == gimp_image_get_height (image);
+  crop = gimp_procedure_config_get_choice_id (config, "after") ==
+         LQR_PAINT_AFTER_CROP &&
+         lqr_paint_covers_canvas (image, layer);
 
   ok = layer_io_read (drawable, format, &pixels);
   for (k = 0; k < 2 && ok; k++)
@@ -422,7 +446,7 @@ lqr_paint_apply (GimpImage            *image,
                       &extra_results[i]);
     }
 
-  if (resize_canvas && covered)
+  if (crop)
     gimp_image_resize (image, result.width, result.height, 0, 0);
 
   if (selection)

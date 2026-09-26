@@ -13,14 +13,19 @@ and the result, as it will be, on the right:
   faces. The seams go around it.
 - **Remove** (red): paint what should go. The seams go through it first.
   **Size to remove the red** makes the layer just enough smaller for all
-  of the red to go, and **Restore the original size** carves back to the
-  original size afterwards: the red stays gone.
+  of the red to go.
+- **After carving**, under Size: **Crop the image to the result** (the
+  canvas fits the layer's new size, when the layer covered all of it),
+  **Keep the image size** (an empty strip is left where the layer shrank,
+  shown as a checkerboard in the result), or **Carve back to the original
+  size** (the red stays gone, and the layer and the canvas keep their
+  size).
 - **Eraser**, or the right mouse button, takes paint away; **Undo** takes
   back a stroke.
 - The result on the right is carved again a moment after every change.
 - **Fine tune**: rigidity (straighter seams), mask strength, what counts as
-  important (energy), the largest enlarging step, and which side goes
-  first.
+  important (energy), the largest enlarging step, which side goes first,
+  and whether the mask layers are carved along.
 
 The painted masks are stored as hidden layers next to the layer (Keep
 (Liquid Rescale Paint) and Remove (Liquid Rescale Paint)), and carved along
