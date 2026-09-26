@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: the painted masks
+/* Liquid Rescale TNG: the painted masks
  *
  * Copyright 2026 David
  *

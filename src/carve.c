@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: seam carving with painted keep and remove masks
+/* Liquid Rescale TNG: seam carving with painted keep and remove masks
  *
  * Copyright 2026 David
  *

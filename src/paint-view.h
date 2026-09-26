@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: the view to paint the masks on
+/* Liquid Rescale TNG: the view to paint the masks on
  *
  * Copyright 2026 David
  *

@@ -12,10 +12,10 @@ out=$tests/output/gui
 devtools=${GIMP_PLUGIN_DEVTOOLS:-$src/../gimp-plugin-devtools}
 cdp="node $devtools/gui/cdp.mjs"
 # the page size is set in each call: Chrome forgets it when cdp.mjs ends
-view=size:${LQRP_VIEW:-1400,1000}
+view=size:${LQRT_VIEW:-1400,1000}
 
 chrome=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
-[ -n "$chrome" ] || { echo "LQRP GUI SKIP: no Chrome or Chromium"; exit 0; }
+[ -n "$chrome" ] || { echo "LQRT GUI SKIP: no Chrome or Chromium"; exit 0; }
 
 mkdir -p "$out"
 CDP_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
@@ -32,7 +32,7 @@ ours () {
             grep -qF "$here/open-dialog.py" && echo "$instance"
       done
 }
-[ -z "$(ours)" ] || { echo "LQRP GUI FAIL: the dialog's GIMP is already running"; exit 1; }
+[ -z "$(ours)" ] || { echo "LQRT GUI FAIL: the dialog's GIMP is already running"; exit 1; }
 chrome_pid=
 gimp_instance=
 cleanup () {

@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: layers in and out
+/* Liquid Rescale TNG: layers in and out
  *
  * Copyright 2026 David
  *
@@ -155,11 +155,11 @@ parasite_text (GimpLayer *target,
 }
 
 static gboolean
-is_mask_of (GimpLayer   *layer,
-            const gchar *text)
+has_parasite (GimpLayer   *layer,
+              const gchar *name,
+              const gchar *text)
 {
-  GimpParasite *parasite = gimp_item_get_parasite (GIMP_ITEM (layer),
-                                                   MASK_PARASITE);
+  GimpParasite *parasite = gimp_item_get_parasite (GIMP_ITEM (layer), name);
   gboolean      found = FALSE;
 
   if (parasite)
@@ -171,6 +171,15 @@ is_mask_of (GimpLayer   *layer,
       gimp_parasite_free (parasite);
     }
   return found;
+}
+
+/* the parasite of this name, or of the plug-in's first name */
+static gboolean
+is_mask_of (GimpLayer   *layer,
+            const gchar *text)
+{
+  return has_parasite (layer, MASK_PARASITE, text) ||
+         has_parasite (layer, MASK_PARASITE_OLD, text);
 }
 
 static GimpLayer *
@@ -196,6 +205,36 @@ find_in (GList       *layers,
         return layer;
     }
   return NULL;
+}
+
+static const gchar *
+mask_name (MaskKind kind)
+{
+  return kind == MASK_KEEP ? _("Keep (Liquid Rescale TNG)")
+                           : _("Remove (Liquid Rescale TNG)");
+}
+
+void
+layer_io_mark_mask (GimpLayer *layer,
+                    GimpLayer *target,
+                    MaskKind   kind)
+{
+  gchar        *text = parasite_text (target, kind);
+  GimpParasite *parasite;
+
+  /* stored by Liquid Rescale Paint: now under this plug-in's names */
+  if (has_parasite (layer, MASK_PARASITE_OLD, text))
+    {
+      gimp_item_detach_parasite (GIMP_ITEM (layer), MASK_PARASITE_OLD);
+      gimp_item_set_name (GIMP_ITEM (layer), mask_name (kind));
+    }
+  parasite = gimp_parasite_new (MASK_PARASITE,
+                                GIMP_PARASITE_PERSISTENT |
+                                GIMP_PARASITE_UNDOABLE,
+                                strlen (text), text);
+  gimp_item_attach_parasite (GIMP_ITEM (layer), parasite);
+  gimp_parasite_free (parasite);
+  g_free (text);
 }
 
 GimpLayer *
@@ -238,29 +277,18 @@ layer_io_store_mask (GimpImage    *image,
   gimp_drawable_get_offsets (GIMP_DRAWABLE (target), &tx, &ty);
   if (!layer)
     {
-      gchar        *text = parasite_text (target, kind);
-      GimpParasite *parasite;
-      GimpLayer    *parent = GIMP_LAYER (gimp_item_get_parent (GIMP_ITEM (target)));
+      GimpLayer *parent = GIMP_LAYER (gimp_item_get_parent (GIMP_ITEM (target)));
 
-      layer = gimp_layer_new (image,
-                              kind == MASK_KEEP ? _("Keep (Liquid Rescale Paint)")
-                                                : _("Remove (Liquid Rescale Paint)"),
-                              width, height,
+      layer = gimp_layer_new (image, mask_name (kind), width, height,
                               gray ? GIMP_GRAYA_IMAGE : GIMP_RGBA_IMAGE, 60.0,
                               GIMP_LAYER_MODE_NORMAL);
       gimp_image_insert_layer (image, layer, parent,
                                gimp_image_get_item_position (image,
                                                              GIMP_ITEM (target)));
       gimp_item_set_visible (GIMP_ITEM (layer), FALSE);
-      parasite = gimp_parasite_new (MASK_PARASITE,
-                                    GIMP_PARASITE_PERSISTENT |
-                                    GIMP_PARASITE_UNDOABLE,
-                                    strlen (text), text);
-      gimp_item_attach_parasite (GIMP_ITEM (layer), parasite);
-      gimp_parasite_free (parasite);
-      g_free (text);
     }
-  else if (gimp_drawable_get_width (GIMP_DRAWABLE (layer)) != width ||
+  layer_io_mark_mask (layer, target, kind);
+  if (gimp_drawable_get_width (GIMP_DRAWABLE (layer)) != width ||
            gimp_drawable_get_height (GIMP_DRAWABLE (layer)) != height)
     {
       gimp_layer_resize (layer, width, height, 0, 0);

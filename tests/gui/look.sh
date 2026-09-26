@@ -10,10 +10,10 @@
 # down, move and up at positions from the dialog's top left corner, e.g.
 #
 #   tests/gui/look.sh keep click:665,591 wait:2000 click:710,771 wait:2000
-#   LQRP_SCENE=300x500 tests/gui/look.sh portrait
+#   LQRT_SCENE=300x500 tests/gui/look.sh portrait
 #
-# LQRP_SCENE is the size of the generated scene (480x300 by default),
-# LQRP_VIEW the size of the page (1400,1000).
+# LQRT_SCENE is the size of the generated scene (480x300 by default),
+# LQRT_VIEW the size of the page (1400,1000).
 #
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -30,7 +30,7 @@ shift
 . "$here/common.sh"
 
 if [ -z "$at" ]; then
-    echo "LQRP GUI FAIL the dialog did not open (log: $out/gimp.log)"
+    echo "LQRT GUI FAIL the dialog did not open (log: $out/gimp.log)"
     exit 1
 fi
 

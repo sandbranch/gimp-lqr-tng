@@ -1,7 +1,7 @@
 # Runs inside GIMP (tests/run.sh), without a window: calls
-# plug-in-lqr-paint non-interactively on generated images and checks the
-# results numerically. Prints "LQRP PASS <case>" or "LQRP FAIL <case>:
-# <why>" for each case, and "LQRP failures: <n>" at the end.
+# plug-in-lqr-tng non-interactively on generated images and checks the
+# results numerically. Prints "LQRT PASS <case>" or "LQRT FAIL <case>:
+# <why>" for each case, and "LQRT failures: <n>" at the end.
 #
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -24,7 +24,7 @@ gi.require_version('Gegl', '0.4')
 from gi.repository import Gimp, Gegl
 
 PDB = Gimp.get_pdb()
-PROC = PDB.lookup_procedure('plug-in-lqr-paint')
+PROC = PDB.lookup_procedure('plug-in-lqr-tng')
 FMT = "R'G'B'A float"
 
 U8 = Gimp.Precision.U8_NON_LINEAR
@@ -147,7 +147,7 @@ def band(columns=(), rows=(), value=(1.0, 1.0, 1.0, 1.0)):
 
 
 def run(image, drawables, **args):
-    """Runs plug-in-lqr-paint non-interactively; returns the PDB status."""
+    """Runs plug-in-lqr-tng non-interactively; returns the PDB status."""
     config = PROC.create_config()
     config.set_property('run-mode', args.pop('run_mode', Gimp.RunMode.NONINTERACTIVE))
     config.set_property('image', image)
@@ -200,7 +200,7 @@ def rows_are_subsequences(before, after, exact=True, tol=1e-4):
 
 @case
 def registered():
-    check(PROC is not None, 'plug-in-lqr-paint is not registered')
+    check(PROC is not None, 'plug-in-lqr-tng is not registered')
     names = [a.get_name() for a in PROC.get_arguments()]
     for name in ['width', 'height', 'keep-layer', 'remove-layer', 'after',
                  'rigidity', 'mask-strength', 'energy', 'max-enlarge', 'order',
@@ -208,8 +208,12 @@ def registered():
         check(name in names, 'no argument %s' % name)
     for name in ['restore-size', 'resize-canvas']:
         check(name not in names, 'the old argument %s is still there' % name)
-    check(PROC.get_menu_label() and 'Paint' in PROC.get_menu_label(),
+    check(PROC.get_menu_label() == 'Liquid Rescale _TNG...',
           'menu label %r' % PROC.get_menu_label())
+    check('Carlo Baldassi' in PROC.get_authors(), 'authors %r' % PROC.get_authors())
+    check('Carlo Baldassi' in PROC.get_help(), 'the help does not credit the original')
+    check(PDB.lookup_procedure('plug-in-lqr-paint') is None,
+          'the old name plug-in-lqr-paint is still registered')
 
 
 @case
@@ -424,6 +428,55 @@ def mask_strength_zero_ignores_masks():
     image.delete()
 
 
+def repeat(image, layer, settings):
+    """Runs the plug-in as Filters > Repeat does, with settings as the last
+    values (which GIMP saves only after interactive runs, and without the
+    mask layers)."""
+    last = os.path.join(Gimp.directory(), 'plug-in-settings',
+                        'GimpProcedureConfigRun-plug-in-lqr-tng.last')
+    os.makedirs(os.path.dirname(last), exist_ok=True)
+    with open(last, 'w') as f:
+        f.write('# settings\n\n%s\n\n# end of settings\n' % '\n'.join(
+            '(%s %s)' % item for item in settings.items()))
+    try:
+        return run(image, [layer], run_mode=Gimp.RunMode.WITH_LAST_VALS)
+    finally:
+        os.remove(last)
+
+
+@case
+def repeat_finds_the_stored_masks():
+    image, layer = new_image(100, 30, pixel=noise(9, object_columns=OBJ))
+    keep = new_layer(image, 'keep', 100, 30, pixel=band(columns=OBJ))
+    keep.attach_parasite(Gimp.Parasite.new(
+        'gimp-lqr-tng-mask', Gimp.PARASITE_PERSISTENT,
+        list(b'keep %d' % layer.get_tattoo())))
+    ok(repeat(image, layer, {'width': 60, 'height': 30}))
+    check(size(layer) == (60, 30), 'size %dx%d' % size(layer))
+    check(object_count(layer) == 300,
+          'object pixels %d of 300: the stored mask was not used'
+          % object_count(layer))
+    image.delete()
+
+
+@case
+def old_parasite_mask_found():
+    # a keep mask stored by Liquid Rescale Paint (this plug-in's first
+    # name) is still the layer's mask
+    image, layer = new_image(100, 30, pixel=noise(9, object_columns=OBJ))
+    keep = new_layer(image, 'old keep', 100, 30, pixel=band(columns=OBJ))
+    keep.attach_parasite(Gimp.Parasite.new(
+        'gimp-lqr-paint-mask', Gimp.PARASITE_PERSISTENT,
+        list(b'keep %d' % layer.get_tattoo())))
+    ok(repeat(image, layer, {'width': 60, 'height': 30}))
+    check(size(layer) == (60, 30), 'size %dx%d' % size(layer))
+    check(object_count(layer) == 300,
+          'object pixels %d of 300: the old mask was not used'
+          % object_count(layer))
+    check(size(keep) == (60, 30), 'the old mask was not carved along')
+    image.delete()
+
+
 # ------------------------------------------------- layers, canvas and more
 
 @case
@@ -626,21 +679,21 @@ def argument_ranges():
 
 # ------------------------------------------------------------------- run
 
-only = re.compile(os.environ.get('LQRP_ONLY') or '.')
+only = re.compile(os.environ.get('LQRT_ONLY') or '.')
 for func in cases:
     name = func.__name__.replace('_', '-')
     if not only.search(name):
         continue
     try:
         func()
-        print('LQRP PASS', name)
+        print('LQRT PASS', name)
     except Fail as e:
         failures.append(name)
-        print('LQRP FAIL %s: %s' % (name, e))
+        print('LQRT FAIL %s: %s' % (name, e))
     except Exception as e:
         failures.append(name)
-        print('LQRP FAIL %s: %s: %s' % (name, type(e).__name__, e))
+        print('LQRT FAIL %s: %s: %s' % (name, type(e).__name__, e))
         traceback.print_exc(file=sys.stdout)
     sys.stdout.flush()
 
-print('LQRP failures:', len(failures))
+print('LQRT failures:', len(failures))

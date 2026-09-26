@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: layers in and out
+/* Liquid Rescale TNG: layers in and out
  *
  * Copyright 2026 David
  *
@@ -29,7 +29,10 @@ G_BEGIN_DECLS
 /* the parasite that marks the mask layers this plug-in makes; its data is
  * "keep <tattoo>" or "remove <tattoo>", the tattoo of the layer they are
  * for */
-#define MASK_PARASITE "gimp-lqr-paint-mask"
+#define MASK_PARASITE "gimp-lqr-tng-mask"
+/* the same, as Liquid Rescale Paint (this plug-in's first name) stored
+ * it: still found, and renamed when the mask is stored again */
+#define MASK_PARASITE_OLD "gimp-lqr-paint-mask"
 
 /* the format a drawable is carved in: float, perceptual (the energy
  * follows what the eye sees), in the drawable's colour space */
@@ -65,6 +68,12 @@ void         layer_io_write         (GimpDrawable       *drawable,
 
 /* the mask layer of this plug-in for target, or NULL */
 GimpLayer  * layer_io_find_mask     (GimpImage          *image,
+                                     GimpLayer          *target,
+                                     MaskKind            kind);
+
+/* marks layer as this plug-in's mask layer of kind for target (with the
+ * parasite of this name, instead of the old one) */
+void         layer_io_mark_mask     (GimpLayer          *layer,
                                      GimpLayer          *target,
                                      MaskKind            kind);
 

@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: the dialog
+/* Liquid Rescale TNG: the dialog
  *
  * Copyright 2026 David
  *
@@ -32,7 +32,7 @@
 #include "carve.h"
 #include "dialog.h"
 #include "layer-io.h"
-#include "lqr-paint.h"
+#include "lqr-tng.h"
 #include "paint-view.h"
 #include "plugin-intl.h"
 
@@ -152,7 +152,7 @@ on_result_draw (GtkWidget *widget,
   bw = rw;
   bh = rh;
   if (gimp_procedure_config_get_choice_id (d->config, "after") ==
-      LQR_PAINT_AFTER_KEEP)
+      LQR_TNG_AFTER_KEEP)
     {
       bw = MAX (bw, d->preview.width * scale);
       bh = MAX (bh, d->preview.height * scale);
@@ -225,8 +225,8 @@ update_result_label (Dialog *d)
   CarveOptions options;
   gchar       *text;
 
-  lqr_paint_options_from_config (d->config, &options, d->layer_width,
-                                 d->layer_height);
+  lqr_tng_options_from_config (d->config, &options, d->layer_width,
+                               d->layer_height);
   if (options.restore_size)
     text = g_strdup_printf (_("Result: %d \303\227 %d pixels (removed at %d "
                               "\303\227 %d, then carved back)"),
@@ -235,8 +235,8 @@ update_result_label (Dialog *d)
   else if ((options.width != d->layer_width ||
             options.height != d->layer_height) &&
            (gimp_procedure_config_get_choice_id (d->config, "after") !=
-            LQR_PAINT_AFTER_CROP ||
-            !lqr_paint_covers_canvas (d->image, d->layer)))
+            LQR_TNG_AFTER_CROP ||
+            !lqr_tng_covers_canvas (d->image, d->layer)))
     text = g_strdup_printf (_("Result: %d \303\227 %d pixels (the image "
                               "stays %d \303\227 %d)"),
                             options.width, options.height,
@@ -332,8 +332,8 @@ start_preview (gpointer data)
 
   t = g_new0 (PreviewTask, 1);
   t->image = &d->preview;
-  lqr_paint_options_from_config (d->config, &t->options, d->layer_width,
-                                 d->layer_height);
+  lqr_tng_options_from_config (d->config, &t->options, d->layer_width,
+                               d->layer_height);
   t->options.width  = preview_size (t->options.width, d->layer_width,
                                     d->preview.width, d->carve_scale);
   t->options.height = preview_size (t->options.height, d->layer_height,
@@ -567,20 +567,13 @@ load_masks (Dialog *d)
 
   masks_work_size (d->layer_width, d->layer_height, &w, &h);
   masks = masks_new (w, h);
+  lqr_tng_find_masks (d->image, d->layer, d->config);
   for (k = 0; k < 2; k++)
     {
       GimpLayer *mask = NULL;
       CarveImage rgba = { 0 }, values = { 0 };
 
       g_object_get (d->config, properties[k], &mask, NULL);
-      if (!lqr_paint_usable_mask (d->image, d->layer, mask))
-        {
-          g_clear_object (&mask);
-          mask = layer_io_find_mask (d->image, d->layer, k);
-          if (mask)
-            g_object_ref (mask);
-          g_object_set (d->config, properties[k], mask, NULL);
-        }
       if (mask &&
           layer_io_read_over (GIMP_DRAWABLE (mask), GIMP_DRAWABLE (d->layer),
                               w, h, &rgba, &values))
@@ -603,12 +596,12 @@ frame (const gchar *title,
 }
 
 gboolean
-lqr_paint_dialog (GimpProcedure       *procedure,
-                  GimpProcedureConfig *config,
-                  GimpImage           *image,
-                  GimpLayer           *layer,
-                  Masks              **masks_out,
-                  gboolean            *changed)
+lqr_tng_dialog (GimpProcedure       *procedure,
+                GimpProcedureConfig *config,
+                GimpImage           *image,
+                GimpLayer           *layer,
+                Masks              **masks_out,
+                gboolean            *changed)
 {
   Dialog        d = { 0 };
   GtkWidget    *dialog, *content, *columns, *left, *right, *tools, *button;
@@ -648,7 +641,7 @@ lqr_paint_dialog (GimpProcedure       *procedure,
 
   add_style ();
   dialog = gimp_procedure_dialog_new (procedure, config,
-                                      _("Liquid Rescale Paint"));
+                                      _("Liquid Rescale TNG"));
   gimp_procedure_dialog_set_ok_label (GIMP_PROCEDURE_DIALOG (dialog),
                                       _("_Rescale"));
   content = gtk_dialog_get_content_area (GTK_DIALOG (dialog));

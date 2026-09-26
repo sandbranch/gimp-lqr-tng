@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tests Liquid Rescale Paint: the unit tests of the seam carving and the
+# Tests Liquid Rescale TNG: the unit tests of the seam carving and the
 # masks (meson test, no GIMP), then the plug-in inside the Flatpak GIMP
 # without a window (tests/gimp-test.py). GIMP runs with a throwaway
 # profile in tests/output (GIMP3_DIRECTORY), where the plug-in is
@@ -7,7 +7,7 @@
 #
 #   tests/run.sh           build, unit tests, GIMP tests
 #   tests/run.sh --asan    the same with AddressSanitizer and UBSan
-#   LQRP_ONLY=mask tests/run.sh   only the GIMP cases whose names match
+#   LQRT_ONLY=mask tests/run.sh   only the GIMP cases whose names match
 #
 # Prints PASS or FAIL for each case and exits non-zero if any case fails,
 # or if the plug-in printed warnings, criticals or sanitizer reports.
@@ -58,31 +58,31 @@ if "$devtools/gimp-build.sh" "$src" "$test_env meson test -C '$build' --print-er
 else
     status=1
     cat "$out/unit.log"
-    echo "LQRP FAIL: unit tests"
+    echo "LQRT FAIL: unit tests"
 fi
 
 echo "== GIMP"
 # shellcheck disable=SC2086
 timeout 1800 flatpak run $run_args --filesystem="$src" --env=GIMP3_DIRECTORY="$profile" \
-  --env=LQRP_ONLY="$LQRP_ONLY" \
+  --env=LQRT_ONLY="$LQRT_ONLY" \
   --command=gimp-console-3.2 org.gimp.GIMP \
   --no-interface --no-data --no-fonts --batch-interpreter python-fu-eval \
   -b "exec(open('$here/gimp-test.py').read())" --quit >"$log" 2>&1
 
-grep -E "^LQRP|Traceback|^  File|Error" "$log"
+grep -E "^LQRT|Traceback|^  File|Error" "$log"
 
-grep -q "^LQRP failures: 0$" "$log" || status=1
+grep -q "^LQRT failures: 0$" "$log" || status=1
 # messages of the plug-in (its process is named after it), and GIMP
 # closing undo groups that the plug-in left open
-if grep -E "gimp-lqr-paint.*(WARNING|CRITICAL)|inconsistent state" "$log"; then
-    echo "LQRP FAIL: warnings from the plug-in, see $log"
+if grep -E "gimp-lqr-tng.*(WARNING|CRITICAL)|inconsistent state" "$log"; then
+    echo "LQRT FAIL: warnings from the plug-in, see $log"
     status=1
 fi
 for report in "$out"/sanitizer/*; do
     [ -e "$report" ] || continue
-    echo "LQRP FAIL: sanitizer report $report"
+    echo "LQRT FAIL: sanitizer report $report"
     head -30 "$report"
     status=1
 done
-[ $status = 0 ] && echo "LQRP all passed" || echo "LQRP FAILED (log: $log)"
+[ $status = 0 ] && echo "LQRT all passed" || echo "LQRT FAILED (log: $log)"
 exit $status

@@ -17,8 +17,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 rm -rf "$here/../output/gui"
 photo=
 status=0
-pass () { echo "LQRP GUI PASS $1"; }
-fail () { echo "LQRP GUI FAIL $1"; status=1; }
+pass () { echo "LQRT GUI PASS $1"; }
+fail () { echo "LQRT GUI FAIL $1"; status=1; }
 
 . "$here/common.sh"
 
@@ -49,7 +49,7 @@ fi
 
 grep -q '^status success$' "$out/result.txt" && pass "Rescale succeeded" ||
   fail "status: $(head -1 "$out/result.txt")"
-grep -q '^layer Remove (Liquid Rescale Paint) .* visible=False$' "$out/result.txt" &&
+grep -q '^layer Remove (Liquid Rescale TNG) .* visible=False$' "$out/result.txt" &&
   pass "the Remove mask layer was stored, hidden" ||
   fail "no hidden Remove mask layer: $(cat "$out/result.txt")"
 
@@ -68,7 +68,7 @@ green = sum(1 for y in range(h) for x in range(w)
 failed = 0
 def report(ok, what):
     global failed
-    print('LQRP GUI %s %s' % ('PASS' if ok else 'FAIL', what))
+    print('LQRT GUI %s %s' % ('PASS' if ok else 'FAIL', what))
     failed |= not ok
 report(h == 300 and 440 <= w < 480, 'the layer is narrower: %d x %d' % (w, h))
 report(red == 0, 'the red post is gone (%d red pixels)' % red)
@@ -77,5 +77,5 @@ report(green == 40 * 110, 'the green tree is whole (%d of %d pixels)' % (green, 
 sys.exit(failed)
 EOF
 
-[ $status = 0 ] && echo "LQRP GUI all passed" || echo "LQRP GUI FAILED (screenshots in $out)"
+[ $status = 0 ] && echo "LQRT GUI all passed" || echo "LQRT GUI FAILED (screenshots in $out)"
 exit $status

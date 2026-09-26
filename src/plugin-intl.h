@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: translations
+/* Liquid Rescale TNG: translations
  *
  * Copyright 2026 David
  *

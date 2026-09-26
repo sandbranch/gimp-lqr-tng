@@ -1,7 +1,7 @@
 # Runs inside GIMP on a Broadway display (tests/gui/start.sh): opens a
-# photo (LQRP_PHOTO) or a generated scene (of the size LQRP_SCENE), and
-# the Liquid Rescale Paint dialog. After Rescale it saves the result and the mask layers in
-# LQRP_OUT, writes the result's size to LQRP_OUT/result.txt, and quits.
+# photo (LQRT_PHOTO) or a generated scene (of the size LQRT_SCENE), and
+# the Liquid Rescale TNG dialog. After Rescale it saves the result and the mask layers in
+# LQRT_OUT, writes the result's size to LQRT_OUT/result.txt, and quits.
 #
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -13,16 +13,16 @@ gi.require_version('Gimp', '3.0')
 gi.require_version('Gegl', '0.4')
 from gi.repository import Gimp, Gegl, Gio
 
-out = os.environ['LQRP_OUT']
-photo = os.environ.get('LQRP_PHOTO')
+out = os.environ['LQRT_OUT']
+photo = os.environ.get('LQRT_PHOTO')
 
 if photo:
     image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(photo))
     layer = image.get_layers()[0]
 else:
     # a sky, a ground, a green tree to keep and a red post to remove, laid
-    # out on 480 x 300 and stretched to LQRP_SCENE (e.g. 300x500)
-    W, H = (int(v) for v in os.environ.get('LQRP_SCENE', '480x300').split('x'))
+    # out on 480 x 300 and stretched to LQRT_SCENE (e.g. 300x500)
+    W, H = (int(v) for v in os.environ.get('LQRT_SCENE', '480x300').split('x'))
     image = Gimp.Image.new(W, H, Gimp.ImageBaseType.RGB)
     layer = Gimp.Layer.new(image, 'scene', W, H, Gimp.ImageType.RGB_IMAGE, 100,
                            Gimp.LayerMode.NORMAL)
@@ -45,7 +45,7 @@ else:
     buf.flush()
 
 Gimp.Display.new(image)
-proc = Gimp.get_pdb().lookup_procedure('plug-in-lqr-paint')
+proc = Gimp.get_pdb().lookup_procedure('plug-in-lqr-tng')
 config = proc.create_config()
 config.set_property('run-mode', Gimp.RunMode.INTERACTIVE)
 config.set_property('image', image)

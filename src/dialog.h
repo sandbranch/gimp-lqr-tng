@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: the dialog
+/* Liquid Rescale TNG: the dialog
  *
  * Copyright 2026 David
  *
@@ -28,12 +28,12 @@ G_BEGIN_DECLS
 /* Shows the dialog for layer; TRUE if the user chose Rescale. Then config
  * holds the settings, *masks the painted masks (at the working size; free
  * with masks_free) and *changed whether they were painted on. */
-gboolean lqr_paint_dialog (GimpProcedure       *procedure,
-                           GimpProcedureConfig *config,
-                           GimpImage           *image,
-                           GimpLayer           *layer,
-                           Masks              **masks,
-                           gboolean            *changed);
+gboolean lqr_tng_dialog (GimpProcedure       *procedure,
+                         GimpProcedureConfig *config,
+                         GimpImage           *image,
+                         GimpLayer           *layer,
+                         Masks              **masks,
+                         gboolean            *changed);
 
 G_END_DECLS
 

@@ -1,10 +1,10 @@
-# Liquid Rescale Paint
+# Liquid Rescale TNG
 
 A GIMP 3 plug-in for seam carving ("liquid rescale", content-aware
 scaling) where you paint, right in its window, what to keep and what to
 remove.
 
-Layer > Liquid Rescale Paint... opens a window with the layer on the left
+Layer > Liquid Rescale TNG... opens a window with the layer on the left
 and the result, as it will be, on the right:
 
 ![The dialog, with the red post painted to remove](docs/dialog-remove.png)
@@ -28,18 +28,27 @@ and the result, as it will be, on the right:
   and whether the mask layers are carved along.
 
 The painted masks are stored as hidden layers next to the layer (Keep
-(Liquid Rescale Paint) and Remove (Liquid Rescale Paint)), and carved along
-with it, so the next run starts from them. From scripts, any layer can be a
+(Liquid Rescale TNG) and Remove (Liquid Rescale TNG)), and carved along
+with it, so the next run starts from them (also Filters > Repeat, which
+uses the masks stored for the layer). From scripts, any layer can be a
 mask: its painted pixels (not transparent, not black) count.
 
-Seam carving itself is done by [liblqr](https://github.com/carlobaldassi/liblqr)
-(Carlo Baldassi), which the plug-in builds in. This is a new plug-in, not a
-port: the ported GIMP 2 Liquid Rescale plug-in, with its own workflow of
-mask layers painted on the canvas, is
-[gimp-lqr-plugin](https://github.com/sandbranch/gimp-lqr-plugin).
+Masks stored by this plug-in under its first name, Liquid Rescale Paint,
+are still found, and take the new names when they are stored again.
 
 Works on RGB and gray layers of every precision (8, 16, 32 bit, float),
 with or without alpha, and carves a layer mask along.
+
+## The original
+
+Liquid Rescale TNG (The Next Generation) follows the
+[Liquid Rescale](https://liquidrescale.wikidot.com/) plug-in by Carlo
+Baldassi ([gimp-lqr-plugin](https://github.com/carlobaldassi/gimp-lqr-plugin),
+GIMP 2), whose library [liblqr](https://github.com/carlobaldassi/liblqr)
+does the seam carving; the plug-in builds it in. This is a new plug-in, not
+a port: the faithful GIMP 3 port of Liquid Rescale, with its own workflow
+of mask layers painted on the canvas, lives at
+[github.com/sandbranch/gimp-lqr-plugin](https://github.com/sandbranch/gimp-lqr-plugin).
 
 ## Building and installing
 
@@ -80,7 +89,7 @@ red and Rescale, and checks that the post is gone, the tree whole, and the
 mask layer stored. Screenshots of each step are left in `tests/output/gui/`.
 `look.sh` opens the dialog the same way, does the steps given (clicks at
 positions in the dialog, keys, text) and leaves a screenshot there, for
-looking at the layout; `LQRP_SCENE=300x500` makes the generated scene
+looking at the layout; `LQRT_SCENE=300x500` makes the generated scene
 another size, such as a portrait one. Only the GIMP these scripts start
 is stopped at the end, not other runs of the Flatpak.
 

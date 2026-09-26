@@ -1,4 +1,4 @@
-/* Liquid Rescale Paint: seam carving with painted keep and remove masks
+/* Liquid Rescale TNG: seam carving with painted keep and remove masks
  *
  * Copyright 2026 David
  *
@@ -26,65 +26,65 @@
 #include "carve.h"
 #include "dialog.h"
 #include "layer-io.h"
-#include "lqr-paint.h"
+#include "lqr-tng.h"
 #include "masks.h"
 #include "plugin-intl.h"
 
-typedef struct _LqrPaint      LqrPaint;
-typedef struct _LqrPaintClass LqrPaintClass;
+typedef struct _LqrTng      LqrTng;
+typedef struct _LqrTngClass LqrTngClass;
 
-struct _LqrPaint
+struct _LqrTng
 {
   GimpPlugIn parent_instance;
 };
 
-struct _LqrPaintClass
+struct _LqrTngClass
 {
   GimpPlugInClass parent_class;
 };
 
-#define LQR_PAINT_TYPE (lqr_paint_get_type ())
-GType lqr_paint_get_type (void) G_GNUC_CONST;
+#define LQR_TNG_TYPE (lqr_tng_get_type ())
+GType lqr_tng_get_type (void) G_GNUC_CONST;
 
-static GList          * lqr_paint_query_procedures (GimpPlugIn           *plug_in);
-static GimpProcedure  * lqr_paint_create_procedure (GimpPlugIn           *plug_in,
-                                                    const gchar          *name);
-static GimpValueArray * lqr_paint_run              (GimpProcedure        *procedure,
-                                                    GimpRunMode           run_mode,
-                                                    GimpImage            *image,
-                                                    GimpDrawable        **drawables,
-                                                    GimpProcedureConfig  *config,
-                                                    gpointer              run_data);
+static GList          * lqr_tng_query_procedures (GimpPlugIn           *plug_in);
+static GimpProcedure  * lqr_tng_create_procedure (GimpPlugIn           *plug_in,
+                                                  const gchar          *name);
+static GimpValueArray * lqr_tng_run              (GimpProcedure        *procedure,
+                                                  GimpRunMode           run_mode,
+                                                  GimpImage            *image,
+                                                  GimpDrawable        **drawables,
+                                                  GimpProcedureConfig  *config,
+                                                  gpointer              run_data);
 
-G_DEFINE_TYPE (LqrPaint, lqr_paint, GIMP_TYPE_PLUG_IN)
+G_DEFINE_TYPE (LqrTng, lqr_tng, GIMP_TYPE_PLUG_IN)
 
-GIMP_MAIN (LQR_PAINT_TYPE)
+GIMP_MAIN (LQR_TNG_TYPE)
 
 static void
-lqr_paint_class_init (LqrPaintClass *klass)
+lqr_tng_class_init (LqrTngClass *klass)
 {
   GimpPlugInClass *plug_in_class = GIMP_PLUG_IN_CLASS (klass);
 
   /* the default set_i18n: the domain is the plug-in's name, in the
    * locale folder next to it */
-  plug_in_class->query_procedures = lqr_paint_query_procedures;
-  plug_in_class->create_procedure = lqr_paint_create_procedure;
+  plug_in_class->query_procedures = lqr_tng_query_procedures;
+  plug_in_class->create_procedure = lqr_tng_create_procedure;
 }
 
 static void
-lqr_paint_init (LqrPaint *lqr_paint)
+lqr_tng_init (LqrTng *lqr_tng)
 {
 }
 
 static GList *
-lqr_paint_query_procedures (GimpPlugIn *plug_in)
+lqr_tng_query_procedures (GimpPlugIn *plug_in)
 {
   return g_list_append (NULL, g_strdup (PLUG_IN_PROC));
 }
 
 static GimpProcedure *
-lqr_paint_create_procedure (GimpPlugIn  *plug_in,
-                            const gchar *name)
+lqr_tng_create_procedure (GimpPlugIn  *plug_in,
+                          const gchar *name)
 {
   GimpProcedure *procedure;
 
@@ -92,12 +92,12 @@ lqr_paint_create_procedure (GimpPlugIn  *plug_in,
     return NULL;
 
   procedure = gimp_image_procedure_new (plug_in, name, GIMP_PDB_PROC_TYPE_PLUGIN,
-                                        lqr_paint_run, NULL, NULL);
+                                        lqr_tng_run, NULL, NULL);
 
   gimp_procedure_set_image_types (procedure, "RGB*, GRAY*");
   gimp_procedure_set_sensitivity_mask (procedure,
                                        GIMP_PROCEDURE_SENSITIVE_DRAWABLE);
-  gimp_procedure_set_menu_label (procedure, _("Liquid Rescale _Paint..."));
+  gimp_procedure_set_menu_label (procedure, _("Liquid Rescale _TNG..."));
   gimp_procedure_add_menu_path (procedure, "<Image>/Layer");
   gimp_procedure_set_documentation (procedure,
     _("Rescale a layer by seam carving, with the parts to keep and to "
@@ -107,9 +107,13 @@ lqr_paint_create_procedure (GimpPlugIn  *plug_in,
       "shape. Paint what to keep in green and what to remove in red. The "
       "masks are stored as hidden layers, so that the next run starts from "
       "them; any layer can serve as a mask when called from a script: "
-      "its painted (not transparent, not black) pixels count."),
+      "its painted (not transparent, not black) pixels count. "
+      "Liquid Rescale TNG follows the Liquid Rescale plug-in by Carlo "
+      "Baldassi, whose library liblqr does the seam carving."),
     PLUG_IN_PROC);
-  gimp_procedure_set_attribution (procedure, "David", "David", "2026");
+  gimp_procedure_set_attribution (procedure,
+                                  "David, after Liquid Rescale by Carlo Baldassi",
+                                  "David", "2026");
 
   gimp_procedure_add_int_argument (procedure, "width", _("_Width"),
                                    _("The new width; 0 keeps the width"),
@@ -129,17 +133,17 @@ lqr_paint_create_procedure (GimpPlugIn  *plug_in,
                                       _("What happens after carving to the "
                                         "new size"),
                                       gimp_choice_new_with_values (
-                                        "crop", LQR_PAINT_AFTER_CROP,
+                                        "crop", LQR_TNG_AFTER_CROP,
                                         _("Crop the image to the result"),
                                         _("Fit the canvas to the layer's new "
                                           "size, when the layer covered all "
                                           "of the canvas"),
-                                        "keep", LQR_PAINT_AFTER_KEEP,
+                                        "keep", LQR_TNG_AFTER_KEEP,
                                         _("Keep the image size (leave an "
                                           "empty strip)"),
                                         _("The canvas keeps its size: where "
                                           "the layer shrank, it is empty"),
-                                        "restore", LQR_PAINT_AFTER_RESTORE,
+                                        "restore", LQR_TNG_AFTER_RESTORE,
                                         _("Carve back to the original size"),
                                         _("Then carve back to the original "
                                           "size: the parts painted to remove "
@@ -223,12 +227,12 @@ unsupported (GimpImage    *image,
              GimpDrawable *drawable)
 {
   if (!GIMP_IS_LAYER (drawable) || GIMP_IS_LAYER_MASK (drawable))
-    return _("Liquid Rescale Paint works on a layer, not on a channel or a mask.");
+    return _("Liquid Rescale TNG works on a layer, not on a channel or a mask.");
   if (gimp_item_is_group (GIMP_ITEM (drawable)))
-    return _("Liquid Rescale Paint cannot carve a layer group.");
+    return _("Liquid Rescale TNG cannot carve a layer group.");
   if (gimp_image_get_base_type (image) == GIMP_INDEXED ||
       gimp_drawable_is_indexed (drawable))
-    return _("Liquid Rescale Paint cannot carve an indexed image; convert "
+    return _("Liquid Rescale TNG cannot carve an indexed image; convert "
              "it to RGB first.");
   if (gimp_layer_is_floating_sel (GIMP_LAYER (drawable)))
     return _("Anchor the floating selection first.");
@@ -275,10 +279,10 @@ new_progress (void)
 }
 
 void
-lqr_paint_options_from_config (GimpProcedureConfig *config,
-                               CarveOptions        *options,
-                               gint                 layer_width,
-                               gint                 layer_height)
+lqr_tng_options_from_config (GimpProcedureConfig *config,
+                             CarveOptions        *options,
+                             gint                 layer_width,
+                             gint                 layer_height)
 {
   gint width, height;
 
@@ -294,12 +298,12 @@ lqr_paint_options_from_config (GimpProcedureConfig *config,
   options->energy = gimp_procedure_config_get_choice_id (config, "energy");
   options->order  = gimp_procedure_config_get_choice_id (config, "order");
   options->restore_size = (gimp_procedure_config_get_choice_id (config, "after")
-                           == LQR_PAINT_AFTER_RESTORE);
+                           == LQR_TNG_AFTER_RESTORE);
 }
 
 gboolean
-lqr_paint_covers_canvas (GimpImage *image,
-                         GimpLayer *layer)
+lqr_tng_covers_canvas (GimpImage *image,
+                       GimpLayer *layer)
 {
   gint x, y;
 
@@ -313,9 +317,9 @@ lqr_paint_covers_canvas (GimpImage *image,
 
 /* a mask layer argument: in this image, and not the layer itself */
 gboolean
-lqr_paint_usable_mask (GimpImage *image,
-                       GimpLayer *layer,
-                       GimpLayer *mask)
+lqr_tng_usable_mask (GimpImage *image,
+                     GimpLayer *layer,
+                     GimpLayer *mask)
 {
   return mask && mask != layer &&
          gimp_item_get_image (GIMP_ITEM (mask)) == image &&
@@ -323,10 +327,10 @@ lqr_paint_usable_mask (GimpImage *image,
 }
 
 static GimpPDBStatusType
-lqr_paint_apply (GimpImage            *image,
-                 GimpLayer            *layer,
-                 GimpProcedureConfig  *config,
-                 GError              **error)
+lqr_tng_apply (GimpImage            *image,
+               GimpLayer            *layer,
+               GimpProcedureConfig  *config,
+               GError              **error)
 {
   GimpDrawable  *drawable = GIMP_DRAWABLE (layer);
   GimpLayer     *masks[2] = { NULL, NULL };
@@ -351,10 +355,10 @@ lqr_paint_apply (GimpImage            *image,
                 "remove-layer", &masks[MASK_REMOVE],
                 "carve-masks", &carve_masks,
                 NULL);
-  lqr_paint_options_from_config (config, &options, width, height);
+  lqr_tng_options_from_config (config, &options, width, height);
 
   for (k = 0; k < 2; k++)
-    if (masks[k] && !lqr_paint_usable_mask (image, layer, masks[k]))
+    if (masks[k] && !lqr_tng_usable_mask (image, layer, masks[k]))
       {
         g_set_error (error, GIMP_PLUG_IN_ERROR, 0,
                      _("The %s mask must be another layer of the same image."),
@@ -374,8 +378,8 @@ lqr_paint_apply (GimpImage            *image,
 
   gimp_drawable_get_offsets (drawable, &x, &y);
   crop = gimp_procedure_config_get_choice_id (config, "after") ==
-         LQR_PAINT_AFTER_CROP &&
-         lqr_paint_covers_canvas (image, layer);
+         LQR_TNG_AFTER_CROP &&
+         lqr_tng_covers_canvas (image, layer);
 
   ok = layer_io_read (drawable, format, &pixels);
   for (k = 0; k < 2 && ok; k++)
@@ -478,6 +482,26 @@ out:
   return GIMP_PDB_SUCCESS;
 }
 
+void
+lqr_tng_find_masks (GimpImage           *image,
+                    GimpLayer           *layer,
+                    GimpProcedureConfig *config)
+{
+  const gchar *properties[2] = { "keep-layer", "remove-layer" };
+  gint         k;
+
+  for (k = 0; k < 2; k++)
+    {
+      GimpLayer *mask = NULL;
+
+      g_object_get (config, properties[k], &mask, NULL);
+      if (!lqr_tng_usable_mask (image, layer, mask))
+        g_object_set (config, properties[k],
+                      layer_io_find_mask (image, layer, k), NULL);
+      g_clear_object (&mask);
+    }
+}
+
 /* the masks painted in the dialog into the mask layers of this plug-in,
  * which become the masks of config */
 static void
@@ -507,12 +531,12 @@ store_masks (GimpImage           *image,
 }
 
 static GimpValueArray *
-lqr_paint_run (GimpProcedure        *procedure,
-               GimpRunMode           run_mode,
-               GimpImage            *image,
-               GimpDrawable        **drawables,
-               GimpProcedureConfig  *config,
-               gpointer              run_data)
+lqr_tng_run (GimpProcedure        *procedure,
+             GimpRunMode           run_mode,
+             GimpImage            *image,
+             GimpDrawable        **drawables,
+             GimpProcedureConfig  *config,
+             gpointer              run_data)
 {
   GimpDrawable      *drawable;
   const gchar       *why;
@@ -525,7 +549,7 @@ lqr_paint_run (GimpProcedure        *procedure,
 
   if (gimp_core_object_array_get_length ((GObject **) drawables) != 1)
     return fail (procedure, GIMP_PDB_CALLING_ERROR,
-                 _("Liquid Rescale Paint works on one layer at a time."));
+                 _("Liquid Rescale TNG works on one layer at a time."));
   drawable = drawables[0];
   why = unsupported (image, drawable);
   if (why)
@@ -534,11 +558,16 @@ lqr_paint_run (GimpProcedure        *procedure,
   if (run_mode == GIMP_RUN_INTERACTIVE)
     {
       gimp_ui_init (PLUG_IN_BINARY);
-      if (!lqr_paint_dialog (procedure, config, image, GIMP_LAYER (drawable),
-                             &masks, &changed))
+      if (!lqr_tng_dialog (procedure, config, image, GIMP_LAYER (drawable),
+                           &masks, &changed))
         return gimp_procedure_new_return_values (procedure, GIMP_PDB_CANCEL,
                                                  NULL);
     }
+
+  /* Repeat: the masks stored for this layer, unless those of the last
+   * run fit it */
+  if (run_mode == GIMP_RUN_WITH_LAST_VALS)
+    lqr_tng_find_masks (image, GIMP_LAYER (drawable), config);
 
   /* the painted masks become layers, and the carving uses them: one step
    * to undo */
@@ -546,7 +575,7 @@ lqr_paint_run (GimpProcedure        *procedure,
   if (changed)
     store_masks (image, GIMP_LAYER (drawable), config, masks);
   masks_free (masks);
-  status = lqr_paint_apply (image, GIMP_LAYER (drawable), config, &error);
+  status = lqr_tng_apply (image, GIMP_LAYER (drawable), config, &error);
   gimp_image_undo_group_end (image);
   if (status != GIMP_PDB_SUCCESS)
     return gimp_procedure_new_return_values (procedure, status, error);
