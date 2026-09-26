@@ -66,7 +66,7 @@ echo "== GIMP"
 timeout 1800 flatpak run $run_args --filesystem="$src" --env=GIMP3_DIRECTORY="$profile" \
   --env=LQRP_ONLY="$LQRP_ONLY" \
   --command=gimp-console-3.2 org.gimp.GIMP \
-  --no-interface --no-data --batch-interpreter python-fu-eval \
+  --no-interface --no-data --no-fonts --batch-interpreter python-fu-eval \
   -b "exec(open('$here/gimp-test.py').read())" --quit >"$log" 2>&1
 
 grep -E "^LQRP|Traceback|^  File|Error" "$log"
