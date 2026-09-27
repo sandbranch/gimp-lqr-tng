@@ -33,5 +33,5 @@ gimp_run --flatpak --filesystem="$src" ${photo:+--filesystem="$(dirname "$photo"
   --env=LQRT_SCENE="${LQRT_SCENE:-480x300}" \
   -- sh -c \
   "broadwayd --port 8085 :5 & bw=\$!; trap 'kill \$bw' EXIT; sleep 2; \
-   gimp-3.2 --no-splash --no-fonts \
+   gimp-3.2 --new-instance --no-splash --no-fonts \
    --batch-interpreter python-fu-eval -b \"exec(open('$here/open-dialog.py').read())\""
