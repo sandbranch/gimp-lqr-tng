@@ -1,7 +1,7 @@
 #!/bin/sh
 # Opens the Liquid Rescale TNG dialog in the Flatpak GIMP on a Broadway
 # display (http://127.0.0.1:8085/), to use or test it with
-# gimp-plugin-devtools/gui/cdp.mjs (see gui-test.sh). The plug-in is the
+# gimp-devtools/gui/cdp.mjs (see gui-test.sh). The plug-in is the
 # one built by tests/run.sh, in its throwaway profile. When the dialog is
 # closed with Rescale, the result and the mask layers are saved in
 # tests/output/gui/ and GIMP quits.

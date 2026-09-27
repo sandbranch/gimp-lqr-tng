@@ -9,7 +9,7 @@
 tests=$(dirname "$here")
 src=$(dirname "$tests")
 out=$tests/output/gui
-devtools=${GIMP_PLUGIN_DEVTOOLS:-$src/../gimp-plugin-devtools}
+devtools=${GIMP_PLUGIN_DEVTOOLS:-$src/../gimp-devtools}
 cdp="node $devtools/gui/cdp.mjs"
 # the page size is set in each call: Chrome forgets it when cdp.mjs ends
 view=size:${LQRT_VIEW:-1400,1000}

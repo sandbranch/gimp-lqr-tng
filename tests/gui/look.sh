@@ -6,7 +6,7 @@
 #
 #   tests/gui/look.sh [--photo file] <name> [step...]
 #
-# The steps are those of gimp-plugin-devtools/gui/cdp.mjs, with click,
+# The steps are those of gimp-devtools/gui/cdp.mjs, with click,
 # down, move and up at positions from the dialog's top left corner, e.g.
 #
 #   tests/gui/look.sh fine click:65,630 wait:1500     (Fine tune open)

@@ -82,7 +82,7 @@ GIMP 2), whose library [liblqr](https://github.com/carlobaldassi/liblqr)
 does the seam carving; the plug-in builds it in. This is a new plug-in, not
 a port: the faithful GIMP 3 port of Liquid Rescale, with its own workflow
 of mask layers painted on the canvas, lives at
-[github.com/sandbranch/gimp-lqr-plugin](https://github.com/sandbranch/gimp-lqr-plugin).
+[github.com/sandbranch/gimp-lqr](https://github.com/sandbranch/gimp-lqr).
 
 ## Building and installing
 
@@ -94,7 +94,7 @@ build it in).
     ninja -C build install
 
 For the Flatpak version of GIMP, build inside it with
-[gimp-plugin-devtools](https://github.com/sandbranch/gimp-plugin-devtools):
+[gimp-devtools](https://github.com/sandbranch/gimp-devtools):
 
     gimp-build.sh . meson setup build -Dplugindir=\$GIMP_PLUGINDIR
     gimp-build.sh . ninja -C build install
@@ -117,7 +117,7 @@ GIMP profile.
 
 `gui-test.sh` opens the dialog on a Broadway display (GTK in a web page)
 and drives it from a headless Chrome with
-[gimp-plugin-devtools](https://github.com/sandbranch/gimp-plugin-devtools)'
+[gimp-devtools](https://github.com/sandbranch/gimp-devtools)'
 `gui/cdp.mjs`: it paints a red post with Remove and a line of the sky with
 Straight, presses Size to remove the red and Rescale, and checks that the
 post is gone, the tree whole, and the mask layers stored. Screenshots of each step are left in `tests/output/gui/`.
