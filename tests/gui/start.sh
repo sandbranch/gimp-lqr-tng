@@ -12,6 +12,8 @@
 # broadwayd stops when GIMP quits, also when GIMP fails. GIMP loads no
 # fonts (--no-fonts): on Broadway it often hung at start while loading
 # them, after "corrupted double-linked list", also without this plug-in.
+# GIMP runs isolated from your own folders (tests/isolate.sh), with the
+# throwaway home of tests/run.sh.
 #
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -21,12 +23,15 @@ src=$(dirname "$tests")
 out=$tests/output/gui
 mkdir -p "$out"
 photo=${1:+$(cd "$(dirname "$1")" && pwd)/$(basename "$1")}
-flatpak run --filesystem="$src" ${photo:+--filesystem="$(dirname "$photo")":ro} \
+GIMP_RUN_HOME=${GIMP_RUN_HOME:-$tests/output/gimp-home}
+# shellcheck source=SCRIPTDIR/../isolate.sh
+. "$tests/isolate.sh"
+gimp_run --flatpak --filesystem="$src" ${photo:+--filesystem="$(dirname "$photo")":ro} \
   --env=GDK_BACKEND=broadway --env=BROADWAY_DISPLAY=:5 \
   --env=GIMP3_DIRECTORY="$tests/output/profile" \
   --env=LQRT_PHOTO="$photo" --env=LQRT_OUT="$out" \
   --env=LQRT_SCENE="${LQRT_SCENE:-480x300}" \
-  --command=sh org.gimp.GIMP -c \
+  -- sh -c \
   "broadwayd --port 8085 :5 & bw=\$!; trap 'kill \$bw' EXIT; sleep 2; \
    gimp-3.2 --no-splash --no-fonts \
    --batch-interpreter python-fu-eval -b \"exec(open('$here/open-dialog.py').read())\""
