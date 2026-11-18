@@ -23,11 +23,20 @@ src=$(dirname "$tests")
 out=$tests/output/gui
 mkdir -p "$out"
 photo=${1:+$(cd "$(dirname "$1")" && pwd)/$(basename "$1")}
+# no Welcome dialog: GIMP shows it in a new profile, or one of an older
+# version, behind the plug-in's dialog
+profile=$tests/output/profile
+if ! grep -q config-version "$profile/gimprc" 2>/dev/null; then
+    version=$(gimp-console-3.2 --version | sed 's/.* //')
+    printf '(config-version "%s")\n' "$version" >> "$profile/gimprc"
+fi
+grep -q show-welcome-dialog "$profile/gimprc" 2>/dev/null ||
+  echo '(show-welcome-dialog no)' >> "$profile/gimprc"
 GIMP_RUN_HOME=${GIMP_RUN_HOME:-$tests/output/gimp-home}
 # shellcheck source=SCRIPTDIR/../isolate.sh
 . "$tests/isolate.sh"
 gimp_run --env=GDK_BACKEND=broadway --env=BROADWAY_DISPLAY=:5 \
-  --env=GIMP3_DIRECTORY="$tests/output/profile" \
+  --env=GIMP3_DIRECTORY="$profile" \
   --env=LQRT_PHOTO="$photo" --env=LQRT_OUT="$out" \
   --env=LQRT_SCENE="${LQRT_SCENE:-480x300}" \
   -- sh -c \
