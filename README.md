@@ -86,18 +86,16 @@ of mask layers painted on the canvas, lives at
 
 ## Building and installing
 
-Needs meson, ninja, a C compiler and the GIMP 3 development files; liblqr
-is used from the system or built in (`-Dbundled_liblqr=enabled` to always
-build it in).
+For the native GIMP 3. Needs meson, ninja, a C compiler and the GIMP 3
+development files; on Debian and Ubuntu:
+
+    sudo apt install gimp libgimp-3.0-dev meson ninja-build
+
+liblqr is used from the system (liblqr-1-dev) or built in
+(`-Dbundled_liblqr=enabled` to always build it in).
 
     meson setup build -Dplugindir=$HOME/.config/GIMP/3.2/plug-ins
     ninja -C build install
-
-For the Flatpak version of GIMP, build inside it with
-[gimp-devtools](https://github.com/sandbranch/gimp-devtools):
-
-    gimp-build.sh . meson setup build -Dplugindir=\$GIMP_PLUGINDIR
-    gimp-build.sh . ninja -C build install
 
 Restart GIMP after installing.
 
@@ -125,7 +123,7 @@ post is gone, the tree whole, and the mask layers stored. Screenshots of each st
 positions in the dialog, keys, text) and leaves a screenshot there, for
 looking at the layout; `LQRT_SCENE=300x500` makes the generated scene
 another size, such as a portrait one. Only the GIMP these scripts start
-is stopped at the end, not other runs of the Flatpak.
+is stopped at the end, not other GIMPs that run meanwhile.
 
 ## License
 

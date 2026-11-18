@@ -1,5 +1,5 @@
 #!/bin/sh
-# Opens the Liquid Rescale TNG dialog in the Flatpak GIMP on a Broadway
+# Opens the Liquid Rescale TNG dialog in the native GIMP on a Broadway
 # display (http://127.0.0.1:8085/), to use or test it with
 # gimp-devtools/gui/cdp.mjs (see gui-test.sh). The plug-in is the
 # one built by tests/run.sh, in its throwaway profile. When the dialog is
@@ -26,8 +26,7 @@ photo=${1:+$(cd "$(dirname "$1")" && pwd)/$(basename "$1")}
 GIMP_RUN_HOME=${GIMP_RUN_HOME:-$tests/output/gimp-home}
 # shellcheck source=SCRIPTDIR/../isolate.sh
 . "$tests/isolate.sh"
-gimp_run --flatpak --filesystem="$src" ${photo:+--filesystem="$(dirname "$photo")":ro} \
-  --env=GDK_BACKEND=broadway --env=BROADWAY_DISPLAY=:5 \
+gimp_run --env=GDK_BACKEND=broadway --env=BROADWAY_DISPLAY=:5 \
   --env=GIMP3_DIRECTORY="$tests/output/profile" \
   --env=LQRT_PHOTO="$photo" --env=LQRT_OUT="$out" \
   --env=LQRT_SCENE="${LQRT_SCENE:-480x300}" \

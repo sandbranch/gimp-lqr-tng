@@ -12,7 +12,7 @@ glib_dep = dependency('glib-2.0', version: '>= 2.68')
 math_dep = cc.find_library('m', required: false)
 
 # liblqr: the system library, or built from source and linked in, which
-# makes the plug-in independent of the system (e.g. in Flatpak)
+# makes the plug-in independent of the system (where liblqr is missing)
 if get_option('bundled_liblqr').enabled()
   lqr_dep = subproject('liblqr', default_options: ['warning_level=0']).get_variable('liblqr_dep')
 else

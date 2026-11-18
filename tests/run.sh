@@ -1,13 +1,13 @@
 #!/bin/sh
 # Tests Liquid Rescale TNG: the unit tests of the seam carving and the
-# masks (meson test, no GIMP), then the plug-in inside the Flatpak GIMP
+# masks (meson test, no GIMP), then the plug-in in the native GIMP
 # without a window (tests/gimp-test.py). GIMP runs with a throwaway
 # profile in tests/output (GIMP3_DIRECTORY), where the plug-in is
 # installed: your own GIMP profile and plug-ins are not used or changed.
 # The build and GIMP run isolated from your folders (tests/isolate.sh,
-# with gimp-devtools/gimp-run.sh): HOME and the XDG folders inside
-# the Flatpak point into tests/output/gimp-home, so nothing lands in
-# ~/.var/app/org.gimp.GIMP either. Before and after, it lists your
+# with gimp-devtools/gimp-run.sh): HOME and the XDG folders point into
+# tests/output/gimp-home, so nothing lands in your caches either. Before
+# and after, it lists your
 # folders of GIMP and the other apps (gimp-devtools/snapshot.sh)
 # and fails if anything there changed.
 #
@@ -41,10 +41,9 @@ if [ "$1" = --asan ]; then
     build=$out/build-asan
     profile=$out/profile-asan
     setup_args="-Db_sanitize=address,undefined -Db_lundef=false"
-    # the sanitizer runtimes are in the SDK, which --devel runs GIMP with;
     # leak reports only for the unit tests: libgimp keeps objects of its
     # own until the plug-in exits
-    run_args="--devel --env=ASAN_OPTIONS=log_path=$out/sanitizer/asan:detect_leaks=0 \
+    run_args="--env=ASAN_OPTIONS=log_path=$out/sanitizer/asan:detect_leaks=0 \
       --env=UBSAN_OPTIONS=log_path=$out/sanitizer/ubsan:print_stacktrace=1"
     test_env="ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1"
 fi
@@ -75,7 +74,7 @@ fi
 
 echo "== GIMP"
 # shellcheck disable=SC2086
-gimp_run --timeout=1800 --flatpak $run_args --filesystem="$src" --env=GIMP3_DIRECTORY="$profile" \
+gimp_run --timeout=1800 $run_args --env=GIMP3_DIRECTORY="$profile" \
   --env=LQRT_ONLY="$LQRT_ONLY" -- \
   gimp-console-3.2 --no-interface --no-data --no-fonts --batch-interpreter python-fu-eval \
   -b "exec(open('$here/gimp-test.py').read())" --quit >"$log" 2>&1
